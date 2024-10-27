@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-@app.route('/upload-image', methods=['POST'])
+@app.route('/', methods=['POST'])
 def upload_image():
     # Check if the request contains a file
     if 'image' not in request.files:
