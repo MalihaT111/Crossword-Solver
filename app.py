@@ -31,7 +31,7 @@ def upload_image():
         print(' '.join(row))
 
     print(crossword)
-    
+
     return jsonify(crossword)
 
 if __name__ == '__main__':
