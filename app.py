@@ -27,12 +27,12 @@ def upload_image():
     ['P', 'E', 'N', 'C', 'I', 'L'],
 
     ]
-    for row in crossword:
-        print(' '.join(row))
+    # for row in crossword:
+    #     print(' '.join(row))
 
-    print(crossword)
-
-    return jsonify(crossword)
+    # print(crossword)
+    return "good job"
+    #return jsonify(crossword)
 
 if __name__ == '__main__':
     app.run(debug=True)
