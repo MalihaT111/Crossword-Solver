@@ -6,11 +6,13 @@ from PIL import Image, ImageEnhance, ImageFilter
 import matplotlib.pyplot as plt
 import pytesseract
 import re
+import requests
+import urllib
+from bs4 import BeautifulSoup
 
 DEBUG=False
 
 app = Flask(__name__)
-
 
 # Utility Functions
 def load_image(file):
@@ -146,14 +148,19 @@ def extract_boxes(image):
     
     # Define the regions based on the layout
     box3 = image[height//2:height, 0:(width*3//5)]  # Left side, bottom half
-    box3 = box3[(height//30):height, 0:width]
+    
+    # M - cutting down image to only the matrix
+    box3 = image[(height//2)+(height//30):(height-(height//25)), ((width//22)):(width*3//5)]
 
-    # Adjust contrast (alpha) and brightness (beta)
-    box3 = cv2.convertScaleAbs(box3, alpha=0.75, beta=0)  # Increase contrast by setting alpha > 1
-    # Morphological dilation to thicken text
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 1))  # You can adjust the kernel size
-    # dilating the image to get finer details
-    box3 = cv2.dilate(box3, kernel, iterations=3)  
+    # print("Box3 shape before processing:", box3.shape, "dtype:", box3.dtype)
+    box3 = process_box3(box3)
+
+    # # Adjust contrast (alpha) and brightness (beta)
+    # box3 = cv2.convertScaleAbs(box3, alpha=0.75, beta=0)  # Increase contrast by setting alpha > 1
+    # # Morphological dilation to thicken text
+    # kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 1))  # You can adjust the kernel size
+    # # dilating the image to get finer details
+    # box3 = cv2.dilate(box3, kernel, iterations=3)  
 
 # OUTPUTTING and image debugging
 
@@ -283,24 +290,193 @@ def data_clean_dict(clues_dict):
     return cleaned_dict
 
 # Function to get the 2D matrix from the image
-def extract_2d_matrix(image):
-    """Extract the 2D matrix for the image."""
-    # Preprocess the image
-    processed_image = preprocess_image(image)
+def process_box3(image):
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    # Debug original image properties
+    # print("Original image shape:", image.shape, "dtype:", image.dtype)
+    
+    image = cv2.GaussianBlur(image, (5, 5), 0)
+    # cv2.imwrite("debug_blur.png", image)
+    
+    sharpening_kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
+    image = cv2.filter2D(image, -1, sharpening_kernel)
+    # cv2.imwrite("debug_sharpened.png", image)
 
-    # Detect edges
-    edges = detect_edges(processed_image)
+    mask = cv2.inRange(image, 0, 180)
+    image[mask == 255] = 0
+    # cv2.imwrite("debug_blacken_low_range.png", image)
 
-    # Find contours and the document corners
-    corners = find_contours(edges)
-    if corners is None:
-        raise ValueError("No document-like contour found.")
+    near_white_mask = cv2.inRange(image, 190, 255)
+    image[near_white_mask == 255] = 255
+    # cv2.imwrite("debug_whiten_high_range.png", image)
 
-    # Get the perspective transformation matrix
-    matrix = get_transformation_matrix(corners)
+    # cv2.imwrite("process_debug.png", image)
+    return image
 
-    return matrix
+# def extract_crossword_matrix(image):
+#     # Threshold the image (binary inversion for detecting black cells)
+#     _, binary = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY_INV)
+#     cv2.imwrite("step1_binary.png", binary)  # Debugging step
 
+#     # Morphological operations to connect grid lines
+#     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+#     dilated = cv2.dilate(binary, kernel, iterations=1)
+#     cv2.imwrite("step2_dilated.png", dilated)  # Debugging step
+
+#     # Calculate cell dimensions (assumes a square NxN grid)
+#     height, width = binary.shape
+#     num_cells = 15  # Adjust based on your crossword size
+#     cell_width = width // num_cells
+#     cell_height = height // num_cells
+
+#     # Initialize the crossword matrix
+#     matrix = []
+
+#     # Extract each cell
+#     for i in range(num_cells):
+#         row = []
+#         for j in range(num_cells):
+#             # Extract the cell using slicing
+#             cell = binary[i * cell_height:(i + 1) * cell_height, j * cell_width:(j + 1) * cell_width]
+
+#             # Analyze the cell's content
+#             mean_intensity = np.mean(cell)
+
+#             # Classify cell based on intensity
+#             if mean_intensity < 50:  # Mostly black
+#                 row.append('B')  # Black box
+#             elif mean_intensity > 200:  # Mostly white
+#                 row.append('W')  # White box
+#             else:
+#                 row.append('N')  # Numbered box (or undecided)
+
+#             # Debugging: Save each cell for inspection
+#             cv2.imwrite(f"cell_{i}_{j}.png", cell)
+
+#         matrix.append(row)
+
+#     return matrix
+
+# Function to generate the answer matrix based on the crossword matrix - # for black, _ for white
+def generate_answer_matrix(crossword_matrix):
+    answer_matrix = []
+
+    for row in crossword_matrix:
+        answer_row = []
+        for cell in row:
+            if cell == '#':
+                answer_row.append('#')  # Keep black cells as 'black'
+            elif cell.isdigit():  # If it's a number (clue starting point)
+                answer_row.append('_')  # Replace numbers with None (or empty string)
+            else:
+                answer_row.append('_')  # For white cells
+        answer_matrix.append(answer_row)
+
+    return answer_matrix
+
+def generate_pattern_for_clue(crossword_matrix, answer_matrix, clue_numbers):
+    pattern = []
+    
+    for clue_number in clue_numbers:
+        # Find the cells that correspond to this clue
+        clue_cells = get_clue_cells(crossword_matrix, clue_number)
+        clue_pattern = ""
+        
+        for cell in clue_cells:
+            row, col = cell
+            if answer_matrix[row][col] is not None:
+                clue_pattern += answer_matrix[row][col]  # If we already have an answer, use it
+            else:
+                clue_pattern += "?"  # Use "?" for unresolved cells
+        
+        pattern.append(clue_pattern)
+    
+    return pattern
+
+# Example: get the cells for a given clue
+def get_clue_cells(crossword_matrix, clue_number):
+    # For simplicity, let's assume we have a way to get the cells for each clue
+    # The clue_numbers will map to coordinates in the crossword_matrix
+    clue_cells = []
+    if clue_number == 1:
+        clue_cells = [(0, 0), (0, 2)]  # Cells for clue 1
+    elif clue_number == 2:
+        clue_cells = [(0, 1), (1, 1)]  # Cells for clue 2
+    return clue_cells
+
+# Function to determine the length of a clue based on its start position in the matrix
+def get_clue_length(matrix, start_row, start_col, direction='across'):
+    length = 0
+    if direction == 'across':
+        # Move across from the start position and count until we hit a black cell
+        col = start_col
+        while col < len(matrix[0]) and matrix[start_row][col] != 'black':
+            length += 1
+            col += 1
+    elif direction == 'down':
+        # Move down from the start position and count until we hit a black cell
+        row = start_row
+        while row < len(matrix) and matrix[row][start_col] != 'black':
+            length += 1
+            row += 1
+    return length
+
+def update_answer_matrix(answer_matrix, clue_number, answer):
+    clue_cells = get_clue_cells(crossword_matrix, clue_number)
+    
+    # Update the answer matrix with the answer letters
+    for i, cell in enumerate(clue_cells):
+        row, col = cell
+        answer_matrix[row][col] = answer[i]
+
+# Function to generate request URLs
+def generate_request_url(clue_text, p, l):
+    url = "https://www.dictionary.com/e/crosswordsolver/"
+    clue_text_clean = clue_text.replace(" ", "-").replace("...", "")
+    url = url + clue_text_clean + "/"
+    
+    parameters = {
+        "p": p,
+        "l": l
+    }
+    
+    return url, parameters
+
+def request_possible_answers(pattern, length):
+    url = "https://www.dictionary.com/e/crosswordsolver/"
+    parameters = {
+        "p": pattern,
+        "l": length
+    }
+    response = requests.get(url + f"?{urllib.parse.urlencode(parameters)}")
+    
+    # Process the response to extract answers (similar to the previous code)
+    # Check if the request was successful
+    if response.status_code == 200:
+        # Parse the HTML content using BeautifulSoup
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Find all rows with possible answers
+        rows = soup.find_all('div', class_='solver-table__row')
+        
+        # Initialize a list to store the answers
+        answers = []
+
+        # Iterate through the rows and extract the answer and confidence
+        for row in rows:
+            # Find the div with data-cy="result" to get the answer
+            answer_cell = row.find('div', attrs={'data-cy': 'result'})
+            if answer_cell:
+                answer = answer_cell.text.strip()  # Clean up the answer text
+                answers.append(answer)
+        
+        # Print or process the answers list
+        print("Possible Answers:", answers)
+
+    else:
+        print("Error: Unable to fetch results.")
+    
+    return answers
 
 @app.route('/', methods=['POST'])
 def upload_image():
@@ -360,15 +536,47 @@ def upload_image():
         box2_clue_dict = extract_clues(box2_text)
         
         box1_clue_dict = data_clean_dict(box1_clue_dict)
+        print("Across Clues Dict:", box1_clue_dict)
         box2_clue_dict = data_clean_dict(box2_clue_dict)
+        print("Down Clues Dict:", box2_clue_dict)
         
         # Calls to get the 2d matrix
-        box3_2d_matrix = extract_2d_matrix(box3_matrix)
+        # Example crossword matrix (2D array)
+        box3_2d_matrix = [
+            ['1', '2', '3', '4', '#', '5', '6', '7', '8', '9', '#', '10', '11', '12', '13'],
+            ['14', '_', '_', '_', '#', '15', '_', '_', '_', '_', '#', '16', '_', '_', '_'],
+            ['17', '_', '_', '_', '18', '_', '_', '_', '_', '_', '19', '_', '_', '_', '_'],
+            ['20', '_', '_', '_', '_', '_', '_', '_', '_', '#', '21', '_', '_', '#', '#'],
+            ['22', '_', '_', '#', '23', '_', '_', '#', '#', '24', '_', '_', '_', '25', '26'],
+            ['27', '_', '_', '28', '#', '#', '29', '30', '31', '_', '_', '#', '32', '_', '_'],
+            ['#', '#', '#', '33', '34', '35', '#', '36', '_', '_', '_', '37', '_', '_', '_'],
+            ['#', '38', '39', '_', '_', '_', '40', '_', '_', '_', '_', '_', '_', '_', '#'],
+            ['41', '_', '_', '_', '_', '_', '_', '_', '#', '42', '_', '_', '#', '#', '#'],
+            ['43', '_', '_', '#', '44', '_', '_', '_', '45', '#', '#', '46', '47', '48', '49'],
+            ['50', '_', '_', '51', '_', '_', '#', '#', '52', '53', '54', '#', '55', '_', '_'],
+            ['#', '#', '56', '_', '_', '#', '57', '58', '_', '_', '_', '59', '_', '_', '_'],
+            ['60', '61', '_', '_', '_', '62', '_', '_', '_', '_', '_', '_', '_', '_', '_'],
+            ['63', '_', '_', '_', '#', '64', '_', '_', '_', '_', '#', '65', '_', '_', '_'],
+            ['66', '_', '_', '_', '#', '67', '_', '_', '_', '_', '#', '68', '_', '_', '_']
+        ]
         
-                
+        # Print the box3 matrix for debugging
+        for row in box3_2d_matrix:
+            print(row)
+            
+        answer_matrix = generate_answer_matrix(box3_2d_matrix)
+        
+        # Print the answer matrix for debugging
+        for row in answer_matrix:
+            print(row)
+        
+        
+        
+        
         box1_across_hex = image_to_hex(box1_across)
         box2_down_hex = image_to_hex(box2_down)
         box3_matrix_hex = image_to_hex(box3_matrix)
+        #box3_2d_matrix_hex = image_to_hex(box3_2d_matrix)
 
         return jsonify({
             "original_image": original_image_hex,
@@ -377,6 +585,7 @@ def upload_image():
             "box1_across": box1_across_hex,
             "box2_down": box2_down_hex,
             "box3_matrix": box3_matrix_hex,
+            #"box3_2d_matrix": box3_2d_matrix_hex
         })
     
     except ValueError as e:
