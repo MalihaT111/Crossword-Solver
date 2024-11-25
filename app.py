@@ -23,11 +23,12 @@ def load_image(file):
         raise ValueError("Failed to load image. Check the file format.")
     return image
 
-# Functions to convert to and from grayscale and rgb color
+# Function to convert to grayscale
 def convert_to_grayscale(image):
     """Convert the image to grayscale."""
     return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
+# Function to convert to rgb color
 def convert_to_rgb(image):
     """Convert the image from BGR to RGB for display purposes."""
     return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -92,6 +93,9 @@ def find_contours(edges):
 def get_transformation_matrix(corner_points):
     """Get transformation matrix to flatten the document."""
     dst_points = np.float32([[2480, 0], [0, 0], [0, 3508], [2480, 3508]])  # A4 paper size
+    
+    # dst_points = np.float32([[0, 0], [0, 3508], [2480, 3508], [2480, 0]]) # crosswordZ transformation 
+    
     matrix = cv2.getPerspectiveTransform(corner_points, dst_points)
     return matrix
 
@@ -100,19 +104,7 @@ def apply_perspective_transform(image, matrix, size=(2480, 3508)):
     """Apply perspective transformation to flatten the document."""
     return cv2.warpPerspective(image, matrix, size)
 
-# # Detects corners using Harris
-# def detect_corners(grayscale_image, block_size=2, ksize=3, k=0.04, threshold_factor=0.01):
-#     """Apply Harris Corner Detection and highlight corners on the original image."""
-#     grayscale_float = np.float32(grayscale_image)
-#     corners = cv2.cornerHarris(grayscale_float, blockSize=block_size, ksize=ksize, k=k)
-#     corners = cv2.dilate(corners, None)  # Dilate to enhance corner points
-#     threshold = threshold_factor * corners.max()
-#     return corners, threshold
-
-def apply_perspective_transform(image, matrix, size=(2480, 3508)):
-    """Apply perspective transformation to flatten the grid."""
-    return cv2.warpPerspective(image, matrix, size)
-
+# * Main Function to extract the boxes Across, Down, and Matrix *
 def extract_boxes(image):
     # Load the image
     height, width = image.shape[:2]
@@ -172,6 +164,7 @@ def extract_boxes(image):
     # Return the images if further processing is needed
     return box1, box2, box3
 
+# Function to use ocr to extract string of clue information from a box
 def extract_text(image):
     # Open the image file
     pil_image = Image.fromarray(image)
@@ -179,25 +172,8 @@ def extract_text(image):
     # Use Tesseract to extract text
     return pytesseract.image_to_string(pil_image)
 
-# def extract_clues(clue_text):
-#     # Regular expression pattern to match clue numbers and corresponding text
-#     pattern = r"(\d+)\)\s*(.*?)(?=\s*\d+\)|$)"
-
-#     # Find all matches using the regex
-#     matches = re.findall(pattern, clue_text, re.DOTALL)
-
-#     # Initialize an empty dictionary to store the clues
-#     clues_dict = {}
-
-#     # Loop through the matches and populate the dictionary
-#     for match in matches:
-#         clue_number = match[0]
-#         clue_text = match[1].replace("\n", " ").strip()  # Replace newlines in clues with a space
-#         clues_dict[clue_number] = clue_text
-
-#     # Print the dictionary to see the result
-#     return clues_dict
-
+# Function to use RegEX to extract individual clues from text string of clue information
+# *** Note: Uses ')' as the delimiter. * could be an issue if ocr picks up a 0, O, or o as ().
 def extract_clues(clue_text):
     """
     Extracts clues from the given text while accounting for multiline values and proper key-value separation.
@@ -250,6 +226,7 @@ This is so cleansing of numbers for the clues can be done independently
 from cleansing for the clues themselves 
 """  
 
+# Function to data cleanse the key,values of a clue dictionary from extract clues function
 def data_clean_dict(clues_dict):
     """ 
     Cleans up the clue numbers and values in a dictionary using one loop.
@@ -289,7 +266,7 @@ def data_clean_dict(clues_dict):
     
     return cleaned_dict
 
-# Function to get the 2D matrix from the image
+# Function to get the 2D matrix from the crossword image (box3)
 def process_box3(image):
     image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     # Debug original image properties
@@ -313,50 +290,6 @@ def process_box3(image):
     # cv2.imwrite("process_debug.png", image)
     return image
 
-# def extract_crossword_matrix(image):
-#     # Threshold the image (binary inversion for detecting black cells)
-#     _, binary = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY_INV)
-#     cv2.imwrite("step1_binary.png", binary)  # Debugging step
-
-#     # Morphological operations to connect grid lines
-#     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
-#     dilated = cv2.dilate(binary, kernel, iterations=1)
-#     cv2.imwrite("step2_dilated.png", dilated)  # Debugging step
-
-#     # Calculate cell dimensions (assumes a square NxN grid)
-#     height, width = binary.shape
-#     num_cells = 15  # Adjust based on your crossword size
-#     cell_width = width // num_cells
-#     cell_height = height // num_cells
-
-#     # Initialize the crossword matrix
-#     matrix = []
-
-#     # Extract each cell
-#     for i in range(num_cells):
-#         row = []
-#         for j in range(num_cells):
-#             # Extract the cell using slicing
-#             cell = binary[i * cell_height:(i + 1) * cell_height, j * cell_width:(j + 1) * cell_width]
-
-#             # Analyze the cell's content
-#             mean_intensity = np.mean(cell)
-
-#             # Classify cell based on intensity
-#             if mean_intensity < 50:  # Mostly black
-#                 row.append('B')  # Black box
-#             elif mean_intensity > 200:  # Mostly white
-#                 row.append('W')  # White box
-#             else:
-#                 row.append('N')  # Numbered box (or undecided)
-
-#             # Debugging: Save each cell for inspection
-#             cv2.imwrite(f"cell_{i}_{j}.png", cell)
-
-#         matrix.append(row)
-
-#     return matrix
-
 # Function to generate the answer matrix based on the crossword matrix - # for black, _ for white
 def generate_answer_matrix(crossword_matrix):
     answer_matrix = []
@@ -374,7 +307,8 @@ def generate_answer_matrix(crossword_matrix):
 
     return answer_matrix
 
-def generate_pattern_for_clue(crossword_matrix, answer_matrix, clue_numbers):
+# Function to get the pattern of clue, pattern, and length for individual website post request
+def generate_pattern(crossword_matrix, answer_matrix, clue_numbers):
     pattern = []
     
     for clue_number in clue_numbers:
@@ -393,90 +327,185 @@ def generate_pattern_for_clue(crossword_matrix, answer_matrix, clue_numbers):
     
     return pattern
 
-# Example: get the cells for a given clue
-def get_clue_cells(crossword_matrix, clue_number):
-    # For simplicity, let's assume we have a way to get the cells for each clue
-    # The clue_numbers will map to coordinates in the crossword_matrix
-    clue_cells = []
-    if clue_number == 1:
-        clue_cells = [(0, 0), (0, 2)]  # Cells for clue 1
-    elif clue_number == 2:
-        clue_cells = [(0, 1), (1, 1)]  # Cells for clue 2
-    return clue_cells
+def generate_possible_clue_answers(clue_dict, crossword, answer_matrix, direction):
+    """
+    Generate a dictionary of possible answers for each clue.
 
-# Function to determine the length of a clue based on its start position in the matrix
-def get_clue_length(matrix, start_row, start_col, direction='across'):
-    length = 0
-    if direction == 'across':
-        # Move across from the start position and count until we hit a black cell
-        col = start_col
-        while col < len(matrix[0]) and matrix[start_row][col] != 'black':
-            length += 1
-            col += 1
-    elif direction == 'down':
-        # Move down from the start position and count until we hit a black cell
-        row = start_row
-        while row < len(matrix) and matrix[row][start_col] != 'black':
-            length += 1
-            row += 1
-    return length
+    Parameters:
+        clue_dict (dict): Dictionary of clues (clue_number: clue_text).
+        crossword (list[list[str]]): The crossword grid.
+        answer_matrix (list[list[str]]): The answer matrix.
+        direction (str): Direction of clues ("across" or "down").
 
-def update_answer_matrix(answer_matrix, clue_number, answer):
-    clue_cells = get_clue_cells(crossword_matrix, clue_number)
+    Returns:
+        dict: A dictionary with clue numbers as keys and lists of possible answers as values.
+    """
+    possible_clue_answers = {}
+
+    for clue_number, clue_text in clue_dict.items():
+        clue_number = int(clue_number)  # Ensure the clue number is an integer
+        try:
+            # Determine the pattern based on the direction
+            if direction == "across":
+                pattern = find_pattern_across(crossword, answer_matrix, clue_number)
+            elif direction == "down":
+                pattern = find_pattern_down(crossword, answer_matrix, clue_number)
+            else:
+                raise ValueError("Invalid direction. Use 'across' or 'down'.")
+            
+            # Fetch possible answers for the clue
+            possible_answers = fetch_crossword_answers(clue_text, pattern, len(pattern))
+            
+            # Store the results in the dictionary
+            possible_clue_answers[clue_number] = possible_answers
+
+        except ValueError as e:
+            print(f"Skipping clue {clue_number}: {e}")
+        except Exception as e:
+            print(f"Error processing clue {clue_number}: {e}")
+
+    return possible_clue_answers
+
+def find_starting_location(crossword, clue_number):
+    """
+    Locate the starting row and column of the given clue number.
     
-    # Update the answer matrix with the answer letters
-    for i, cell in enumerate(clue_cells):
-        row, col = cell
-        answer_matrix[row][col] = answer[i]
-
-# Function to generate request URLs
-def generate_request_url(clue_text, p, l):
-    url = "https://www.dictionary.com/e/crosswordsolver/"
-    clue_text_clean = clue_text.replace(" ", "-").replace("...", "")
-    url = url + clue_text_clean + "/"
+    Parameters:
+        crossword (list[list[str]]): The crossword grid.
+        clue_number (int): The clue number to locate.
     
-    parameters = {
-        "p": p,
-        "l": l
-    }
-    
-    return url, parameters
+    Returns:
+        tuple[int, int]: The (row, column) of the starting clue.
+    """
+    for row_idx, row in enumerate(crossword):
+        for col_idx, cell in enumerate(row):
+            if cell == str(clue_number):
+                # Found the start location of the clue
+                return row_idx, col_idx
+    raise ValueError(f"Clue number {clue_number} not found in the crossword.")
 
-def request_possible_answers(pattern, length):
-    url = "https://www.dictionary.com/e/crosswordsolver/"
-    parameters = {
-        "p": pattern,
-        "l": length
-    }
-    response = requests.get(url + f"?{urllib.parse.urlencode(parameters)}")
+def find_pattern_across(crossword, answer_matrix, clue_number):
+    """
+    Finds the pattern for a given clue number across in the crossword.
     
-    # Process the response to extract answers (similar to the previous code)
-    # Check if the request was successful
-    if response.status_code == 200:
-        # Parse the HTML content using BeautifulSoup
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # Find all rows with possible answers
-        rows = soup.find_all('div', class_='solver-table__row')
-        
-        # Initialize a list to store the answers
-        answers = []
-
-        # Iterate through the rows and extract the answer and confidence
-        for row in rows:
-            # Find the div with data-cy="result" to get the answer
-            answer_cell = row.find('div', attrs={'data-cy': 'result'})
-            if answer_cell:
-                answer = answer_cell.text.strip()  # Clean up the answer text
-                answers.append(answer)
-        
-        # Print or process the answers list
-        print("Possible Answers:", answers)
-
-    else:
-        print("Error: Unable to fetch results.")
+    Parameters:
+        crossword (list[list[str]]): The crossword grid with clue numbers and '#' for black spaces.
+        answer_matrix (list[list[str]]): The corresponding answer grid with '_' for empty spaces.
+        clue_number (int): The clue number to find the pattern for.
     
-    return answers
+    Returns:
+        str: The pattern as a string (e.g., "????" or "A??T").
+    """
+    # Locate the clue number in the crossword grid
+    start_row, start_col = find_starting_location(crossword, clue_number)
+
+    # Build the pattern by traversing across the row
+    pattern = []
+    for col in range(start_col, len(crossword[start_row])):
+        cell = crossword[start_row][col]
+        if cell == "#":  # Stop at a black space
+            break
+        # Use the corresponding cell in the answer matrix
+        answer_cell = answer_matrix[start_row][col]
+        if answer_cell == "_":  # Empty space becomes "?"
+            pattern.append("?")
+        else:  # Filled letters are preserved
+            pattern.append(answer_cell)
+    
+    return "".join(pattern)
+
+def find_pattern_down(crossword, answer_matrix, clue_number):
+    """
+    Finds the pattern for a given clue number down in the crossword.
+    
+    Parameters:
+        crossword (list[list[str]]): The crossword grid with clue numbers and '#' for black spaces.
+        answer_matrix (list[list[str]]): The corresponding answer grid with '_' for empty spaces.
+        clue_number (int): The clue number to find the pattern for.
+    
+    Returns:
+        str: The pattern as a string (e.g., "????" or "A??T").
+    """
+    # Locate the clue number in the crossword grid
+    start_row, start_col = find_starting_location(crossword, clue_number)
+
+    # Build the pattern by traversing downward the column
+    pattern = []
+    for row in range(start_row, len(crossword)):
+        cell = crossword[row][start_col]
+        if cell == "#":  # Stop at a black space
+            break
+        # Use the corresponding cell in the answer matrix
+        answer_cell = answer_matrix[row][start_col]
+        if answer_cell == "_":  # Empty space becomes "?"
+            pattern.append("?")
+        else:  # Filled letters are preserved
+            pattern.append(answer_cell)
+    
+    return "".join(pattern)
+
+# Note: "%3F" is a reserved URI character representing "?"
+# Function to fetch an array of answers based on a clue, pattern string, and length.
+def fetch_crossword_answers(clue: str, pattern: str = None, length: int = None):
+    """
+    Fetch possible crossword answers for a given clue, with optional pattern and length.
+    Tries more general queries if specific queries return no results.
+    
+    Parameters:
+        clue (str): The crossword clue text.
+        pattern (str, optional): The clue pattern (e.g., '????'). Default is None.
+        length (int, optional): The expected length of the answer. Default is None.
+    
+    Returns:
+        list: A list of possible answers.
+    """
+    base_url = "https://www.dictionary.com/e/crosswordsolver/"
+    url = base_url + f"{urllib.parse.quote(clue)}/"  # Encode clue in the URL
+
+    # Define fallback query scenarios
+    queries = []
+    if pattern and length:
+        queries.append({"p": pattern, "l": length})  # Specific: pattern and length
+    if pattern:
+        queries.append({"p": pattern})              # Less specific: only pattern
+    queries.append({})                              # Least specific: no parameters
+
+    for params in queries:
+        try:
+            # Build the request URL with the current parameters
+            request_url = url + f"?{urllib.parse.urlencode(params)}" if params else url
+            response = requests.get(request_url)
+            response.raise_for_status()  # Raise error if request fails
+
+            # Parse the HTML response
+            soup = BeautifulSoup(response.text, 'html.parser')
+            rows = soup.find_all('div', class_='solver-table__row')
+
+            # Extract answers from the rows
+            answers = []
+            for row in rows:
+                answer_cell = row.find('div', attrs={'data-cy': 'result'})
+                if answer_cell:
+                    answer = answer_cell.text.strip()
+                    answers.append(answer)
+            
+            if answers:
+                return answers  # Return results as soon as we find any
+            
+        except requests.RequestException as e:
+            print(f"Error fetching crossword answers for params {params}: {e}")
+    
+    return []  # Return an empty list if all queries fail
+
+
+# def update_answer_matrix(answer_matrix, clue_number, answer):
+# #     clue_cells = get_clue_cells(crossword_matrix, clue_number)
+    
+# #     # Update the answer matrix with the answer letters
+# #     for i, cell in enumerate(clue_cells):
+# #         row, col = cell
+# #         answer_matrix[row][col] = answer[i]
+
 
 @app.route('/', methods=['POST'])
 def upload_image():
@@ -571,13 +600,51 @@ def upload_image():
             print(row)
         
         
+        # Testing for obtaining pattern p for 57 across for debugging
+        clue_number = 57
+        pattern = find_pattern_across(box3_2d_matrix, answer_matrix, clue_number)
+        print(f"Pattern for clue {clue_number} across: {pattern}")
+
+        # Testing for obtaining pattern p for 57 down for debugging        
+        clue_number = 57
+        pattern = find_pattern_down(box3_2d_matrix, answer_matrix, clue_number)
+        print(f"Pattern for clue {clue_number} across: {pattern}")        
+        
+        # Testing for getting a response answer array for a clue          
+        clue = "Beg-pardon-..."
+        pattern = "????"
+        length = 4
+
+        answers = fetch_crossword_answers(clue, pattern, length)
+        print("Possible Answers:", answers)        
+
+        
+        # Testing to get the Across possible answers
+        across_answers = generate_possible_clue_answers(
+            clue_dict=box1_clue_dict,
+            crossword=box3_2d_matrix,
+            answer_matrix=answer_matrix,
+            direction="across"
+        )
+
+        # Testing to get the Down possible answers
+        down_answers = generate_possible_clue_answers(
+            clue_dict=box2_clue_dict,
+            crossword=box3_2d_matrix,
+            answer_matrix=answer_matrix,
+            direction="down"
+        )
+
+        # Outputting the Across and Down possible answer results to terminal
+        print("Possible Across Answers:", across_answers)
+        print("Possible Down Answers:", down_answers)
         
         
+        # Converting to hex for transport to output but honestly questioning whether bytes would be better
         box1_across_hex = image_to_hex(box1_across)
         box2_down_hex = image_to_hex(box2_down)
         box3_matrix_hex = image_to_hex(box3_matrix)
-        #box3_2d_matrix_hex = image_to_hex(box3_2d_matrix)
-
+       
         return jsonify({
             "original_image": original_image_hex,
             "transformed_image": transformed_image_hex,
@@ -585,7 +652,6 @@ def upload_image():
             "box1_across": box1_across_hex,
             "box2_down": box2_down_hex,
             "box3_matrix": box3_matrix_hex,
-            #"box3_2d_matrix": box3_2d_matrix_hex
         })
     
     except ValueError as e:
