@@ -327,6 +327,7 @@ def generate_pattern(crossword_matrix, answer_matrix, clue_numbers):
     
     return pattern
 
+# Function to get a dictionary of clue numbers to an array of clue possible answers
 def generate_possible_clue_answers(clue_dict, crossword, answer_matrix, direction):
     """
     Generate a dictionary of possible answers for each clue.
@@ -366,6 +367,7 @@ def generate_possible_clue_answers(clue_dict, crossword, answer_matrix, directio
 
     return possible_clue_answers
 
+# Helper Function to find the starting possition of the clue in the crossword puzzle
 def find_starting_location(crossword, clue_number):
     """
     Locate the starting row and column of the given clue number.
@@ -384,6 +386,7 @@ def find_starting_location(crossword, clue_number):
                 return row_idx, col_idx
     raise ValueError(f"Clue number {clue_number} not found in the crossword.")
 
+# Helper Function to find the request string pattern p if the clue is in across clue
 def find_pattern_across(crossword, answer_matrix, clue_number):
     """
     Finds the pattern for a given clue number across in the crossword.
@@ -414,6 +417,7 @@ def find_pattern_across(crossword, answer_matrix, clue_number):
     
     return "".join(pattern)
 
+# Helper Function to find the request string pattern p if the clue is a down clue
 def find_pattern_down(crossword, answer_matrix, clue_number):
     """
     Finds the pattern for a given clue number down in the crossword.
@@ -444,8 +448,8 @@ def find_pattern_down(crossword, answer_matrix, clue_number):
     
     return "".join(pattern)
 
-# Note: "%3F" is a reserved URI character representing "?"
 # Function to fetch an array of answers based on a clue, pattern string, and length.
+# Note for URL requests: "%3F" is a reserved URI character representing "?"
 def fetch_crossword_answers(clue: str, pattern: str = None, length: int = None):
     """
     Fetch possible crossword answers for a given clue, with optional pattern and length.
@@ -497,7 +501,6 @@ def fetch_crossword_answers(clue: str, pattern: str = None, length: int = None):
     
     return []  # Return an empty list if all queries fail
 
-
 # def update_answer_matrix(answer_matrix, clue_number, answer):
 # #     clue_cells = get_clue_cells(crossword_matrix, clue_number)
     
@@ -505,6 +508,50 @@ def fetch_crossword_answers(clue: str, pattern: str = None, length: int = None):
 # #     for i, cell in enumerate(clue_cells):
 # #         row, col = cell
 # #         answer_matrix[row][col] = answer[i]
+
+# def solve_crossword(crossword, answer_matrix, across_clues, down_clues):
+#     """
+#     Solves the crossword puzzle using backtracking.
+
+#     Parameters:
+#         crossword (list[list[str]]): The crossword grid with clue numbers and '#' for black spaces.
+#         answer_matrix (list[list[str]]): The answer grid to fill.
+#         across_clues (dict): Dictionary of across clues with possible answers.
+#         down_clues (dict): Dictionary of down clues with possible answers.
+
+#     Returns:
+#         bool: True if the crossword is solved, False otherwise.
+#     """
+#     # Find the next clue to solve (heuristic: fewest options first)
+#     clue_number, direction, possible_answers = get_next_clue(across_clues, down_clues)
+
+#     # Base case: No clues left, puzzle solved
+#     if not clue_number:
+#         return True
+
+#     # Get the current pattern and verify possible answers
+#     if direction == "across":
+#         pattern_func = find_pattern_across
+#     else:
+#         pattern_func = find_pattern_down
+
+#     pattern = pattern_func(crossword, answer_matrix, clue_number)
+
+#     for answer in possible_answers:
+#         if is_valid_answer(answer_matrix, clue_number, answer, direction, crossword):
+#             # Place the answer in the grid
+#             place_answer(answer_matrix, clue_number, answer, direction)
+
+#             # Recur to solve the rest of the puzzle
+#             if solve_crossword(crossword, answer_matrix, across_clues, down_clues):
+#                 return True
+
+#             # Undo the placement (backtracking)
+#             remove_answer(answer_matrix, clue_number, answer, direction)
+
+#     return False
+
+
 
 
 @app.route('/', methods=['POST'])
@@ -565,9 +612,9 @@ def upload_image():
         box2_clue_dict = extract_clues(box2_text)
         
         box1_clue_dict = data_clean_dict(box1_clue_dict)
-        print("Across Clues Dict:", box1_clue_dict)
+        # print("Across Clues Dict:", box1_clue_dict)
         box2_clue_dict = data_clean_dict(box2_clue_dict)
-        print("Down Clues Dict:", box2_clue_dict)
+        # print("Down Clues Dict:", box2_clue_dict)
         
         # Calls to get the 2d matrix
         # Example crossword matrix (2D array)
@@ -589,34 +636,34 @@ def upload_image():
             ['66', '_', '_', '_', '#', '67', '_', '_', '_', '_', '#', '68', '_', '_', '_']
         ]
         
-        # Print the box3 matrix for debugging
-        for row in box3_2d_matrix:
-            print(row)
+        # # Print the box3 matrix for debugging
+        # for row in box3_2d_matrix:
+        #     print(row)
             
         answer_matrix = generate_answer_matrix(box3_2d_matrix)
         
-        # Print the answer matrix for debugging
-        for row in answer_matrix:
-            print(row)
+        # # Print the answer matrix for debugging
+        # for row in answer_matrix:
+        #     print(row)
         
         
-        # Testing for obtaining pattern p for 57 across for debugging
-        clue_number = 57
-        pattern = find_pattern_across(box3_2d_matrix, answer_matrix, clue_number)
-        print(f"Pattern for clue {clue_number} across: {pattern}")
+        # # Testing for obtaining pattern p for 57 across for debugging
+        # clue_number = 57
+        # pattern = find_pattern_across(box3_2d_matrix, answer_matrix, clue_number)
+        # print(f"Pattern for clue {clue_number} across: {pattern}")
 
-        # Testing for obtaining pattern p for 57 down for debugging        
-        clue_number = 57
-        pattern = find_pattern_down(box3_2d_matrix, answer_matrix, clue_number)
-        print(f"Pattern for clue {clue_number} across: {pattern}")        
+        # # Testing for obtaining pattern p for 57 down for debugging        
+        # clue_number = 57
+        # pattern = find_pattern_down(box3_2d_matrix, answer_matrix, clue_number)
+        # print(f"Pattern for clue {clue_number} across: {pattern}")        
         
-        # Testing for getting a response answer array for a clue          
-        clue = "Beg-pardon-..."
-        pattern = "????"
-        length = 4
+        # # Testing for getting a response answer array for a clue          
+        # clue = "Beg-pardon-..."
+        # pattern = "????"
+        # length = 4
 
-        answers = fetch_crossword_answers(clue, pattern, length)
-        print("Possible Answers:", answers)        
+        # answers = fetch_crossword_answers(clue, pattern, length)
+        # print("Possible Answers:", answers)        
 
         
         # Testing to get the Across possible answers
@@ -640,18 +687,18 @@ def upload_image():
         print("Possible Down Answers:", down_answers)
         
         
-        # Converting to hex for transport to output but honestly questioning whether bytes would be better
-        box1_across_hex = image_to_hex(box1_across)
-        box2_down_hex = image_to_hex(box2_down)
-        box3_matrix_hex = image_to_hex(box3_matrix)
+        # # Converting to hex for transport to output but honestly questioning whether bytes would be better
+        # box1_across_hex = image_to_hex(box1_across)
+        # box2_down_hex = image_to_hex(box2_down)
+        # box3_matrix_hex = image_to_hex(box3_matrix)
        
         return jsonify({
-            "original_image": original_image_hex,
-            "transformed_image": transformed_image_hex,
-            "corners": corners.tolist(),  # Return corner values for further processing if needed
-            "box1_across": box1_across_hex,
-            "box2_down": box2_down_hex,
-            "box3_matrix": box3_matrix_hex,
+            # "original_image": original_image_hex,
+            # "transformed_image": transformed_image_hex,
+            # "corners": corners.tolist(),  # Return corner values for further processing if needed
+            # "box1_across": box1_across_hex,
+            # "box2_down": box2_down_hex,
+            # "box3_matrix": box3_matrix_hex,
         })
     
     except ValueError as e:
