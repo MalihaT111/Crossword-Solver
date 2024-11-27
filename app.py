@@ -72,7 +72,7 @@ def preprocess_image(image):
 # Detects edges using Canny
 def detect_edges(image):
     """Detect edges using Canny edge detection."""
-    return cv2.Canny(image, 50, 150)
+    return cv2.Canny(image, 150, 150)
 
 # Takes the edges returned from detect_edges to get the specific document 4 corners
 def find_contours(edges):
@@ -140,19 +140,9 @@ def extract_boxes(image):
     
     # Define the regions based on the layout
     box3 = image[height//2:height, 0:(width*3//5)]  # Left side, bottom half
-    
     # M - cutting down image to only the matrix
-    box3 = image[(height//2)+(height//30):(height-(height//25)), ((width//22)):(width*3//5)]
-
-    # print("Box3 shape before processing:", box3.shape, "dtype:", box3.dtype)
-    box3 = process_box3(box3)
-
-    # # Adjust contrast (alpha) and brightness (beta)
-    # box3 = cv2.convertScaleAbs(box3, alpha=0.75, beta=0)  # Increase contrast by setting alpha > 1
-    # # Morphological dilation to thicken text
-    # kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 1))  # You can adjust the kernel size
-    # # dilating the image to get finer details
-    # box3 = cv2.dilate(box3, kernel, iterations=3)  
+    box3 = image[((height//2)-10)+(height//30):(height-(height//25)), ((width//22)):(width*3//5)-7]
+    # cv2.imwrite("box3_check.png", box3)
 
 # OUTPUTTING and image debugging
 
@@ -272,7 +262,7 @@ def process_box3(image):
     # Debug original image properties
     # print("Original image shape:", image.shape, "dtype:", image.dtype)
     
-    image = cv2.GaussianBlur(image, (5, 5), 0)
+    image = cv2.GaussianBlur(image, (7, 7), 0)
     # cv2.imwrite("debug_blur.png", image)
     
     sharpening_kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
@@ -283,12 +273,93 @@ def process_box3(image):
     image[mask == 255] = 0
     # cv2.imwrite("debug_blacken_low_range.png", image)
 
-    near_white_mask = cv2.inRange(image, 190, 255)
+    near_white_mask = cv2.inRange(image, 180, 255)
     image[near_white_mask == 255] = 255
     # cv2.imwrite("debug_whiten_high_range.png", image)
 
     # cv2.imwrite("process_debug.png", image)
     return image
+
+# Helper function detects if there are pixels in the top right corner of the crossword individual boxes
+# indicating there is a number in that box
+def process_pixel(img, threshold=0.3):
+    """
+    Detects whether a cell contains a number based on the concentration of black pixels
+    in the top-left region of the cell.
+
+    Parameters:
+        img (numpy.ndarray): The input image of the cell (grayscale).
+        threshold (float): The percentage of black pixels required to classify the cell as containing a number.
+
+    Returns:
+        bool: True if a number is detected, False otherwise.
+    """
+    # Define the top-left region as a fraction of the cell's dimensions
+    height, width = img.shape
+    region_h, region_w = height // 2, width // 2  # Top-left quarter of the cell
+
+    # Crop the top-left region
+    top_left_region = img[0:region_h, 0:region_w]
+
+    # Count the number of black pixels in the region
+    black_pixel_count = np.sum(top_left_region < 128)  # Pixels with intensity < 128 are considered black
+
+    # Calculate the percentage of black pixels
+    total_pixels = region_h * region_w
+    black_pixel_percentage = black_pixel_count / total_pixels
+
+    # Check if the percentage exceeds the threshold
+    return black_pixel_percentage > threshold
+
+# Function that splices crossword into individual boxes and calls box_corner_number_detection
+# on each box and constructs crossword matrix with numbers, '_' for white, and '#' for black.
+def crossword_extract(image):
+    # Process the image (ensure you define the 'process' function for preprocessing)
+
+    # cv2.imwrite("process_box3_before.png", image)
+    image = process_box3(image)  
+    # cv2.imwrite("cross.png", image) 
+    
+
+    h = image.shape[0] // 15  # height of each cropped section
+    w = image.shape[1] // 15  # width of each cropped section
+
+    grid = []
+    count = 1
+    # Loop through each row and column for cropping
+    for i in range(15):
+        row = []
+        for j in range(15):
+            # Define the cropping coordinates
+            y_start = i * h # initial start is 0 times the height
+            y_end = (i + 1) * h # initital end is 1 times the height 
+            x_start = j * w 
+            x_end = (j + 1) * w
+
+            cropped_image = image[y_start:y_end, x_start:x_end]
+            # cv2.imwrite("crop.png", cropped_image)
+            if count < 10:
+                text = process_pixel(cropped_image, .23)
+            else:
+                text = process_pixel(cropped_image, .3)            
+
+            # Check if the cropped section is mostly white or black
+            avg_pixel_value = np.mean(cropped_image)
+            
+            # If the average pixel value is greater than 127, classify it as white
+            if avg_pixel_value > 127:
+                if text:  # If text is found
+                    row.append(str(count))
+                    count += 1
+                else:
+                    row.append("_")  # Append "white" if no text found
+            else:
+                row.append("#")
+
+        # Add the row to the grid
+        grid.append(row)
+
+    return grid
 
 # Function to generate the answer matrix based on the crossword matrix - # for black, _ for white
 def generate_answer_matrix(crossword_matrix):
@@ -501,58 +572,161 @@ def fetch_crossword_answers(clue: str, pattern: str = None, length: int = None):
     
     return []  # Return an empty list if all queries fail
 
-# def update_answer_matrix(answer_matrix, clue_number, answer):
-# #     clue_cells = get_clue_cells(crossword_matrix, clue_number)
+
+def get_next_clue(across_clues, down_clues):
+    """
+    Selects the next clue to solve based on the fewest options available.
+
+    Parameters:
+        across_clues (dict): Dictionary of across clues with possible answers.
+        down_clues (dict): Dictionary of down clues with possible answers.
+
+    Returns:
+        clue_number (int): The number of the next clue to solve.
+        direction (str): "across" or "down" to indicate clue direction.
+        possible_answers (list): List of possible answers for that clue.
+    """
+    # Combine across and down clues into a list of all clues
+    all_clues = [(k, 'across', v) for k, v in across_clues.items()] + \
+                [(k, 'down', v) for k, v in down_clues.items()]
     
-# #     # Update the answer matrix with the answer letters
-# #     for i, cell in enumerate(clue_cells):
-# #         row, col = cell
-# #         answer_matrix[row][col] = answer[i]
+    # Sort clues by the number of possible answers (ascending)
+    all_clues.sort(key=lambda x: len(x[2]))
+    
+    # Return the clue with the fewest possible answers
+    return all_clues[0]  # This returns (clue_number, direction, possible_answers)
 
-# def solve_crossword(crossword, answer_matrix, across_clues, down_clues):
-#     """
-#     Solves the crossword puzzle using backtracking.
+def is_valid_answer(answer_matrix, clue_number, answer, direction, crossword):
+    """
+    Checks if placing an answer in the grid is valid.
+    
+    Parameters:
+        answer_matrix (list[list[str]]): The current answer grid.
+        clue_number (int): The clue number to which the answer corresponds.
+        answer (str): The candidate answer to place in the grid.
+        direction (str): "across" or "down", the direction of the clue.
+        crossword (list[list[str]]): The crossword structure.
 
-#     Parameters:
-#         crossword (list[list[str]]): The crossword grid with clue numbers and '#' for black spaces.
-#         answer_matrix (list[list[str]]): The answer grid to fill.
-#         across_clues (dict): Dictionary of across clues with possible answers.
-#         down_clues (dict): Dictionary of down clues with possible answers.
+    Returns:
+        bool: True if the answer is valid, False otherwise.
+    """
+    # Get the starting position for the clue
+    start_row, start_col = find_clue_position(crossword, clue_number, direction)
+    
+    if direction == 'across':
+        # Check horizontal validity: Make sure answer fits and does not conflict with existing answers
+        for i in range(len(answer)):
+            if crossword[start_row][start_col + i] != '#' and answer_matrix[start_row][start_col + i] not in ('_', answer[i]):
+                return False
+    elif direction == 'down':
+        # Check vertical validity: Make sure answer fits and does not conflict with existing answers
+        for i in range(len(answer)):
+            if crossword[start_row + i][start_col] != '#' and answer_matrix[start_row + i][start_col] not in ('_', answer[i]):
+                return False
+    
+    return True
 
-#     Returns:
-#         bool: True if the crossword is solved, False otherwise.
-#     """
-#     # Find the next clue to solve (heuristic: fewest options first)
-#     clue_number, direction, possible_answers = get_next_clue(across_clues, down_clues)
+def find_clue_position(crossword, clue_number, direction):
+    """
+    Finds the starting position (row, column) for a given clue in the crossword.
+    
+    Parameters:
+        crossword (list[list[str]]): The crossword structure.
+        clue_number (int): The clue number to locate.
+        direction (str): "across" or "down", the direction of the clue.
 
-#     # Base case: No clues left, puzzle solved
-#     if not clue_number:
-#         return True
+    Returns:
+        (int, int): The row and column of the clue's starting position.
+    """
+    for row in range(len(crossword)):
+        for col in range(len(crossword[row])):
+            if crossword[row][col] == str(clue_number):
+                # Found the clue number
+                if direction == 'across' and col < len(crossword[row]) - 1 and crossword[row][col + 1] != '#':
+                    return row, col
+                elif direction == 'down' and row < len(crossword) - 1 and crossword[row + 1][col] != '#':
+                    return row, col
+    return None  # In case the clue is not found (shouldn't happen if the crossword is correct)
 
-#     # Get the current pattern and verify possible answers
-#     if direction == "across":
-#         pattern_func = find_pattern_across
-#     else:
-#         pattern_func = find_pattern_down
+def place_answer(answer_matrix, clue_number, answer, direction):
+    """
+    Places the given answer into the grid at the correct positions.
+    
+    Parameters:
+        answer_matrix (list[list[str]]): The current answer grid.
+        clue_number (int): The clue number to which the answer corresponds.
+        answer (str): The answer to place in the grid.
+        direction (str): "across" or "down", the direction of the clue.
+    """
+    start_row, start_col = find_clue_position(crossword, clue_number, direction)
+    
+    if direction == 'across':
+        for i in range(len(answer)):
+            answer_matrix[start_row][start_col + i] = answer[i]
+    elif direction == 'down':
+        for i in range(len(answer)):
+            answer_matrix[start_row + i][start_col] = answer[i]
 
-#     pattern = pattern_func(crossword, answer_matrix, clue_number)
+def remove_answer(answer_matrix, clue_number, answer, direction):
+    """
+    Removes the given answer from the grid (backtracking).
+    
+    Parameters:
+        answer_matrix (list[list[str]]): The current answer grid.
+        clue_number (int): The clue number to which the answer corresponds.
+        answer (str): The answer to remove from the grid.
+        direction (str): "across" or "down", the direction of the clue.
+    """
+    start_row, start_col = find_clue_position(crossword, clue_number, direction)
+    
+    if direction == 'across':
+        for i in range(len(answer)):
+            answer_matrix[start_row][start_col + i] = '_'
+    elif direction == 'down':
+        for i in range(len(answer)):
+            answer_matrix[start_row + i][start_col] = '_'
 
-#     for answer in possible_answers:
-#         if is_valid_answer(answer_matrix, clue_number, answer, direction, crossword):
-#             # Place the answer in the grid
-#             place_answer(answer_matrix, clue_number, answer, direction)
+def solve_crossword(crossword, answer_matrix, across_clues, down_clues):
+    """
+    Solves the crossword puzzle using backtracking.
 
-#             # Recur to solve the rest of the puzzle
-#             if solve_crossword(crossword, answer_matrix, across_clues, down_clues):
-#                 return True
+    Parameters:
+        crossword (list[list[str]]): The crossword grid with clue numbers and '#' for black spaces.
+        answer_matrix (list[list[str]]): The answer grid to fill.
+        across_clues (dict): Dictionary of across clues with possible answers.
+        down_clues (dict): Dictionary of down clues with possible answers.
 
-#             # Undo the placement (backtracking)
-#             remove_answer(answer_matrix, clue_number, answer, direction)
+    Returns:
+        bool: True if the crossword is solved, False otherwise.
+    """
+    # Find the next clue to solve (heuristic: fewest options first)
+    clue_number, direction, possible_answers = get_next_clue(across_clues, down_clues)
 
-#     return False
+    # Base case: No clues left, puzzle solved
+    if not clue_number:
+        return True
 
+    # Get the current pattern and verify possible answers
+    if direction == "across":
+        pattern_func = find_pattern_across
+    else:
+        pattern_func = find_pattern_down
 
+    pattern = pattern_func(crossword, answer_matrix, clue_number)
 
+    for answer in possible_answers:
+        if is_valid_answer(answer_matrix, clue_number, answer, direction, crossword):
+            # Place the answer in the grid
+            place_answer(answer_matrix, clue_number, answer, direction)
+
+            # Recur to solve the rest of the puzzle
+            if solve_crossword(crossword, answer_matrix, across_clues, down_clues):
+                return True
+
+            # Undo the placement (backtracking)
+            remove_answer(answer_matrix, clue_number, answer, direction)
+
+    return False
 
 @app.route('/', methods=['POST'])
 def upload_image():
@@ -593,6 +767,8 @@ def upload_image():
         else:
             print("Cannot apply perspective transform as corners were not detected.")
         
+        
+        # cv2.imwrite("transformed.png", transformed_image)
         # Convert images to RGB for response
         original_rgb = convert_to_rgb(image)
         transformed_rgb = convert_to_rgb(transformed_image)
@@ -616,25 +792,27 @@ def upload_image():
         box2_clue_dict = data_clean_dict(box2_clue_dict)
         # print("Down Clues Dict:", box2_clue_dict)
         
-        # Calls to get the 2d matrix
-        # Example crossword matrix (2D array)
-        box3_2d_matrix = [
-            ['1', '2', '3', '4', '#', '5', '6', '7', '8', '9', '#', '10', '11', '12', '13'],
-            ['14', '_', '_', '_', '#', '15', '_', '_', '_', '_', '#', '16', '_', '_', '_'],
-            ['17', '_', '_', '_', '18', '_', '_', '_', '_', '_', '19', '_', '_', '_', '_'],
-            ['20', '_', '_', '_', '_', '_', '_', '_', '_', '#', '21', '_', '_', '#', '#'],
-            ['22', '_', '_', '#', '23', '_', '_', '#', '#', '24', '_', '_', '_', '25', '26'],
-            ['27', '_', '_', '28', '#', '#', '29', '30', '31', '_', '_', '#', '32', '_', '_'],
-            ['#', '#', '#', '33', '34', '35', '#', '36', '_', '_', '_', '37', '_', '_', '_'],
-            ['#', '38', '39', '_', '_', '_', '40', '_', '_', '_', '_', '_', '_', '_', '#'],
-            ['41', '_', '_', '_', '_', '_', '_', '_', '#', '42', '_', '_', '#', '#', '#'],
-            ['43', '_', '_', '#', '44', '_', '_', '_', '45', '#', '#', '46', '47', '48', '49'],
-            ['50', '_', '_', '51', '_', '_', '#', '#', '52', '53', '54', '#', '55', '_', '_'],
-            ['#', '#', '56', '_', '_', '#', '57', '58', '_', '_', '_', '59', '_', '_', '_'],
-            ['60', '61', '_', '_', '_', '62', '_', '_', '_', '_', '_', '_', '_', '_', '_'],
-            ['63', '_', '_', '_', '#', '64', '_', '_', '_', '_', '#', '65', '_', '_', '_'],
-            ['66', '_', '_', '_', '#', '67', '_', '_', '_', '_', '#', '68', '_', '_', '_']
-        ]
+        box3_2d_matrix = crossword_extract(box3_matrix)
+        
+        # # Calls to get the 2d matrix
+        # # Example crossword matrix (2D array)
+        # box3_2d_matrix = [
+        #     ['1', '2', '3', '4', '#', '5', '6', '7', '8', '9', '#', '10', '11', '12', '13'],
+        #     ['14', '_', '_', '_', '#', '15', '_', '_', '_', '_', '#', '16', '_', '_', '_'],
+        #     ['17', '_', '_', '_', '18', '_', '_', '_', '_', '_', '19', '_', '_', '_', '_'],
+        #     ['20', '_', '_', '_', '_', '_', '_', '_', '_', '#', '21', '_', '_', '#', '#'],
+        #     ['22', '_', '_', '#', '23', '_', '_', '#', '#', '24', '_', '_', '_', '25', '26'],
+        #     ['27', '_', '_', '28', '#', '#', '29', '30', '31', '_', '_', '#', '32', '_', '_'],
+        #     ['#', '#', '#', '33', '34', '35', '#', '36', '_', '_', '_', '37', '_', '_', '_'],
+        #     ['#', '38', '39', '_', '_', '_', '40', '_', '_', '_', '_', '_', '_', '_', '#'],
+        #     ['41', '_', '_', '_', '_', '_', '_', '_', '#', '42', '_', '_', '#', '#', '#'],
+        #     ['43', '_', '_', '#', '44', '_', '_', '_', '45', '#', '#', '46', '47', '48', '49'],
+        #     ['50', '_', '_', '51', '_', '_', '#', '#', '52', '53', '54', '#', '55', '_', '_'],
+        #     ['#', '#', '56', '_', '_', '#', '57', '58', '_', '_', '_', '59', '_', '_', '_'],
+        #     ['60', '61', '_', '_', '_', '62', '_', '_', '_', '_', '_', '_', '_', '_', '_'],
+        #     ['63', '_', '_', '_', '#', '64', '_', '_', '_', '_', '#', '65', '_', '_', '_'],
+        #     ['66', '_', '_', '_', '#', '67', '_', '_', '_', '_', '#', '68', '_', '_', '_']
+        # ]
         
         # # Print the box3 matrix for debugging
         # for row in box3_2d_matrix:
@@ -682,23 +860,24 @@ def upload_image():
             direction="down"
         )
 
-        # Outputting the Across and Down possible answer results to terminal
-        print("Possible Across Answers:", across_answers)
-        print("Possible Down Answers:", down_answers)
+        # # Outputting the Across and Down possible answer results to terminal
+        # print("Possible Across Answers:", across_answers)
+        # print("Possible Down Answers:", down_answers)
         
-        
-        # # Converting to hex for transport to output but honestly questioning whether bytes would be better
-        # box1_across_hex = image_to_hex(box1_across)
-        # box2_down_hex = image_to_hex(box2_down)
-        # box3_matrix_hex = image_to_hex(box3_matrix)
+        # Converting to hex for transport to output but honestly questioning whether bytes would be better
+        box1_across_hex = image_to_hex(box1_across)
+        box2_down_hex = image_to_hex(box2_down)
+        box3_matrix_hex = image_to_hex(box3_matrix)
+        # box3_2d_matrix = image_to_hex(box3_2d_matrix)
        
         return jsonify({
-            # "original_image": original_image_hex,
-            # "transformed_image": transformed_image_hex,
-            # "corners": corners.tolist(),  # Return corner values for further processing if needed
-            # "box1_across": box1_across_hex,
-            # "box2_down": box2_down_hex,
-            # "box3_matrix": box3_matrix_hex,
+            "original_image": original_image_hex,
+            "transformed_image": transformed_image_hex,
+            "corners": corners.tolist(),  # Return corner values for further processing if needed
+            "box1_across": box1_across_hex,
+            "box2_down": box2_down_hex,
+            "box3_matrix": box3_matrix_hex,
+            # "box3_2d_matrix": box3_2d_matrix
         })
     
     except ValueError as e:
