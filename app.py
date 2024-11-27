@@ -2,7 +2,6 @@ from flask import Flask, request, jsonify
 import cv2
 import numpy as np
 import io
-from PIL import Image, ImageEnhance, ImageFilter
 import matplotlib.pyplot as plt
 import pytesseract
 import re
@@ -45,12 +44,21 @@ def save_or_show_image(image, title="Image", color_map=None):
 
 # Function to convert Numpy image array to dex string for JSON response
 def image_to_hex(image):
-    """Convert a NumPy image array to a hexadecimal string for JSON response."""
-    pil_image = Image.fromarray(image)
-    byte_arr = io.BytesIO()
-    pil_image.save(byte_arr, format='PNG')
-    byte_arr.seek(0)
-    return byte_arr.getvalue().hex()
+    """Convert a NumPy image array to a hexadecimal string for JSON response using OpenCV."""
+    # Ensure image is in the correct format (BGR to RGB if needed)
+    if len(image.shape) == 3:  # Check if the image is a color image
+        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    else:
+        image_rgb = image  # Grayscale images don't need conversion
+    
+    # Encode image as PNG
+    success, buffer = cv2.imencode('.png', image_rgb)
+    if not success:
+        raise ValueError("Failed to encode image to PNG.")
+    
+    # Convert the buffer to hexadecimal
+    return buffer.tobytes().hex()
+
 
 # Preprocessing image in order (grayscale, blur, bilateral filtering, binary threshold)
 def preprocess_image(image):
@@ -154,13 +162,17 @@ def extract_boxes(image):
     # Return the images if further processing is needed
     return box1, box2, box3
 
-# Function to use ocr to extract string of clue information from a box
 def extract_text(image):
-    # Open the image file
-    pil_image = Image.fromarray(image)
+    """
+    Use Tesseract to extract text directly from a NumPy image array using OpenCV.
+    """
+    # Ensure the image is in grayscale (required for better OCR performance)
+    if len(image.shape) == 3:  # If the image is not already grayscale
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     
-    # Use Tesseract to extract text
-    return pytesseract.image_to_string(pil_image)
+    # Use Tesseract to extract text from the image
+    return pytesseract.image_to_string(image)
+
 
 # Function to use RegEX to extract individual clues from text string of clue information
 # *** Note: Uses ')' as the delimiter. * could be an issue if ocr picks up a 0, O, or o as ().
