@@ -8,6 +8,7 @@ import re
 import requests
 import urllib
 from bs4 import BeautifulSoup
+from CrosswordSolver import *
 
 DEBUG=False
 
@@ -584,466 +585,14 @@ def fetch_crossword_answers(clue: str, pattern: str = None, length: int = None):
     
     return []  # Return an empty list if all queries fail
 
-def get_next_clue(across_clues, down_clues):
-    """
-    Selects the next clue to solve based on the fewest options available.
-
-    Parameters:
-        across_clues (dict): Dictionary of across clues with possible answers.
-        down_clues (dict): Dictionary of down clues with possible answers.
-
-    Returns:
-        clue_number (int): The number of the next clue to solve.
-        direction (str): "across" or "down" to indicate clue direction.
-        possible_answers (list): List of possible answers for that clue.
-    """
-    # Combine across and down clues into a list of all clues
-    all_clues = [(k, 'across', v) for k, v in across_clues.items()] + \
-                [(k, 'down', v) for k, v in down_clues.items()]
-    
-    # Sort clues by the number of possible answers (ascending)
-    all_clues.sort(key=lambda x: len(x[2]))
-    
-    # Return the clue with the fewest possible answers
-    return all_clues[0]  # This returns (clue_number, direction, possible_answers)
-
-def is_valid_answer(answer_matrix, clue_number, answer, direction, crossword):
-    """
-    Checks if placing an answer in the grid is valid.
-    
-    Parameters:
-        answer_matrix (list[list[str]]): The current answer grid.
-        clue_number (int): The clue number to which the answer corresponds.
-        answer (str): The candidate answer to place in the grid.
-        direction (str): "across" or "down", the direction of the clue.
-        crossword (list[list[str]]): The crossword structure.
-
-    Returns:
-        bool: True if the answer is valid, False otherwise.
-    """
-    # Get the starting position for the clue
-    start_row, start_col = find_clue_position(crossword, clue_number, direction)
-    
-    if direction == 'across':
-        # Check horizontal validity: Make sure answer fits and does not conflict with existing answers
-        for i in range(len(answer)):
-            if crossword[start_row][start_col + i] != '#' and answer_matrix[start_row][start_col + i] not in ('_', answer[i]):
-                return False
-    elif direction == 'down':
-        # Check vertical validity: Make sure answer fits and does not conflict with existing answers
-        for i in range(len(answer)):
-            if crossword[start_row + i][start_col] != '#' and answer_matrix[start_row + i][start_col] not in ('_', answer[i]):
-                return False
-    
-    return True
-
-def find_clue_position(crossword, clue_number, direction):
-    """
-    Finds the starting position (row, column) for a given clue in the crossword.
-    
-    Parameters:
-        crossword (list[list[str]]): The crossword structure.
-        clue_number (int): The clue number to locate.
-        direction (str): "across" or "down", the direction of the clue.
-
-    Returns:
-        (int, int): The row and column of the clue's starting position.
-    """
-    for row in range(len(crossword)):
-        for col in range(len(crossword[row])):
-            if crossword[row][col] == str(clue_number):
-                # Found the clue number
-                if direction == 'across' and col < len(crossword[row]) - 1 and crossword[row][col + 1] != '#':
-                    return row, col
-                elif direction == 'down' and row < len(crossword) - 1 and crossword[row + 1][col] != '#':
-                    return row, col
-    return None  # In case the clue is not found (shouldn't happen if the crossword is correct)
-
-def place_answer(answer_matrix, clue_number, answer, direction):
-    """
-    Places the given answer into the grid at the correct positions.
-    
-    Parameters:
-        answer_matrix (list[list[str]]): The current answer grid.
-        clue_number (int): The clue number to which the answer corresponds.
-        answer (str): The answer to place in the grid.
-        direction (str): "across" or "down", the direction of the clue.
-    """
-    start_row, start_col = find_clue_position(crossword, clue_number, direction)
-    
-    if direction == 'across':
-        for i in range(len(answer)):
-            answer_matrix[start_row][start_col + i] = answer[i]
-    elif direction == 'down':
-        for i in range(len(answer)):
-            answer_matrix[start_row + i][start_col] = answer[i]
-
-def remove_answer(answer_matrix, clue_number, answer, direction):
-    """
-    Removes the given answer from the grid (backtracking).
-    
-    Parameters:
-        answer_matrix (list[list[str]]): The current answer grid.
-        clue_number (int): The clue number to which the answer corresponds.
-        answer (str): The answer to remove from the grid.
-        direction (str): "across" or "down", the direction of the clue.
-    """
-    start_row, start_col = find_clue_position(crossword, clue_number, direction)
-    
-    if direction == 'across':
-        for i in range(len(answer)):
-            answer_matrix[start_row][start_col + i] = '_'
-    elif direction == 'down':
-        for i in range(len(answer)):
-            answer_matrix[start_row + i][start_col] = '_'
-
-# functions to solve crossword
-def positions(grid, clue_number, direction):
-    """
-    Determine the length of the word for a clue based on its position and direction.
-
-    Args:
-        grid (list[list[str]]): The crossword grid.
-        clue_number (int): The clue number.
-        direction (str): "across" or "down".
-
-    Returns:
-        int: The length of the word.
-        list: Ordered list of positions as (row, col).
-        tuple: Starting position as (row, col).
-    """
-    start_pos = ()
-    positions = []
-
-    # Find the starting position of the clue
-    start_row, start_col = None, None
-    for row in range(len(grid)):
-        for col in range(len(grid[row])):
-            if grid[row][col] == str(clue_number):
-                start_row, start_col = row, col
-                start_pos = (row, col)
-                break
-        if start_row is not None:
-            break
-
-    if start_row is None or start_col is None:
-        raise ValueError(f"Clue {clue_number} not found in the grid.")
-
-    # Collect positions based on the direction
-    if direction == "across":
-        col = start_col
-        while col < len(grid[0]) and grid[start_row][col] != '#':
-            positions.append((start_row, col))
-            col += 1
-    elif direction == "down":
-        row = start_row
-        while row < len(grid) and grid[row][start_col] != '#':
-            positions.append((row, start_col))
-            row += 1
-    else:
-        raise ValueError(f"Invalid direction: {direction}")
-
-    word_length = len(positions)
-    return word_length, positions, start_pos
-
-# Function to sort clues by least constrained variable
-def sort_clues_by_constraints(clues):
-    """
-    Sort clues based on the number of possible words (least constrained first).
-
-    Args:
-        clues (dict): Dictionary of clues.
-
-    Returns:
-        list: Sorted list of clues (clue_number, details).
-    """
-    return sorted(clues.items(), key=lambda item: -len(item[1][0]))
-
-# now i have a function to go through the dictionary and append the proper things 
-def update_clues_with_positions(grid, clues, direction):
-    """
-    Updates the clues dictionary with word length, start position, and positions set.
-
-    Args:
-        grid (list[list[str]]): The crossword grid.
-        clues (dict): Dictionary of clues where keys are clue numbers, and values are possible words.
-        direction (str): "across" or "down".
-
-    Returns:
-        dict: Updated dictionary with each clue number having (possible words array, word length, start pos, positions set).
-    """
-    updated_clues = {}
-    for clue_number, words in clues.items():
-        # Get the positions information for the clue
-        word_length, positions_set, start_pos = positions(grid, clue_number, direction)
-        # Update the clue value with the new information
-        updated_clues[clue_number] = (words, word_length, start_pos, positions_set)
-    return updated_clues
-
-def solve_crossword(grid, across_clues, down_clues):
-    """
-    Solve the crossword puzzle with separate handling for across and down clues.
-    
-    Args:
-        grid (list[list[str]]): The crossword grid.
-        across_clues (dict): Updated across clues with possible words, word length, start pos, positions set.
-        down_clues (dict): Updated down clues with possible words, word length, start pos, positions set.
-    
-    Returns:
-        list[list[str]]: Partially or fully solved crossword grid.
-    """
-
-
-    def word_fits(grid, word, positions):
-        """Check if a word fits in the current grid state at specified positions."""
-        for (row, col), char in zip(positions, word):
-            if grid[row][col] not in (char, "."):  # "." denotes an empty cell
-                return False
-        return True
-
-    def place_word(grid, word, positions, clue_number):
-        """Place a word in the grid and record ownership."""
-        print(f"Placing word '{word}' for clue {clue_number} at positions {positions}")
-        for (row, col), char in zip(positions, word):
-            grid[row][col] = char
-        print_grid(grid)
-
-    def can_place_word(grid, word, positions):
-        """
-        Check if a word can be placed in the grid without causing conflicts.
-
-        Args:
-            grid (list[list[str]]): The crossword grid.
-            word (str): The word to check.
-            positions (list[tuple]): List of (row, col) positions for the word.
-
-        Returns:
-            bool: True if the word can be placed without conflicts, False otherwise.
-        """
-        for (row, col), letter in zip(positions, word):
-            # Conflict if the cell is not empty and doesn't match the letter
-            if grid[row][col] != '_' and grid[row][col] != letter:
-                return False
-        return True
-
-    def remove_word(grid, word, positions):
-        """
-        Remove a word from the grid safely.
-
-        Args:
-            grid (list[list[str]]): The crossword grid.
-            word (str): The word to remove.
-            positions (list): List of positions (row, col) where the word was placed.
-        """
-        print(f"Removing word '{word}' from positions {positions}")
-        for (row, col), char in zip(positions, word):
-            # Reset only if the current letter matches the word being removed
-            if grid[row][col] == char:
-                grid[row][col] = "."
-        print_grid(grid)  # Print the grid after removing the word
-
-    def print_grid(grid):
-        """Print the crossword grid."""
-        print("\n".join(" ".join(cell if cell != "." else "_" for cell in row) for row in grid))
-        print("\n" + "-" * 40 + "\n")
-        
-    def backtrack(clues, grid):
-        """
-        Recursive backtracking solver for clues using least constrained variables first.
-        """
-        if not clues:
-            print("All clues solved!")
-            print_grid(grid)  # Final solved grid
-            return True  # No more clues to solve
-
-        # Sort clues by LCV (most possible words first)
-        sorted_clues = sort_clues_by_constraints(clues)
-
-        for clue_number, (possible_words, word_length, start_pos, positions_set) in sorted_clues:
-            print(f"Trying to solve clue {clue_number}...")
-
-            for word in possible_words:
-                if len(word) != word_length:
-                    continue  # Skip words with incorrect lengths
-
-                # Check if the word fits in the grid
-                if word_fits(grid, word, positions_set):
-                    place_word(grid, word, positions_set, clue_number)
-
-                    # Remove the clue and recurse
-                    del clues[clue_number]
-                    if backtrack(clues, grid):
-                        return True
-
-                    # If it didn't work, backtrack (remove the word)
-                    print(f"Backtracking: Removing word '{word}' for clue {clue_number}")
-                    clues[clue_number] = (possible_words, word_length, start_pos, positions_set)
-                    remove_word(grid, word, positions_set)
-
-        print(f"Could not solve clue {clue_number}. Backtracking...")
-        return False  # No valid words fit
-
-
-
-    # Initialize the grid with empty cells
-    for row in range(len(grid)):
-        for col in range(len(grid[0])):
-            if grid[row][col] != "#":  # "#" represents blocked cells
-                grid[row][col] = "."
-
-    # Solve across clues first, then down clues
-    backtrack(across_clues.copy(), grid)
-    backtrack(down_clues.copy(), grid)
-
-    return grid
-
-
-
-
-
-grid2 = [
-['_', '_', '_', '_', '#', '_', '_', '_', '_', '_', '#', '_', '_', '_', '_'],
-['_', '_', '_', '_', '#', '_', '_', '_', '_', '_', '#', '_', '_', '_', '_'],
-['_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_'],
-['_', '_', '_', '_', '_', '_', '_', '_', '_', '#', '_', '_', '_', '#', '#'],
-['_', '_', '_', '#', '_', '_', '_', '#', '#', '_', '_', '_', '_', '_', '_'],
-['_', '_', '_', '_', '#', '#', '_', '_', '_', '_', '_', '#', '_', '_', '_'],
-['#', '#', '#', '_', '_', '_', '#', '_', '_', '_', '_', '_', '_', '_', '_'],
-['#', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '#'],
-['_', '_', '_', '_', '_', '_', '_', '_', '#', '_', '_', '_', '#', '#', '#'],
-['_', '_', '_', '#', '_', '_', '_', '_', '_', '#', '#', '_', '_', '_', '_'],
-['_', '_', '_', '_', '_', '_', '#', '#', '_', '_', '_', '#', '_', '_', '_'],
-['#', '#', '_', '_', '_', '#', '_', '_', '_', '_', '_', '_', '_', '_', '_'],
-['_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_'],
-['_', '_', '_', '_', '#', '_', '_', '_', '_', '_', '#', '_', '_', '_', '_'],
-['_', '_', '_', '_', '#', '_', '_', '_', '_', '_', '#', '_', '_', '_', '_']
-]
-grid = [
-    ['1', '2', '3', '4', '#', '5', '6', '7', '8', '9', '#', '10', '11', '12', '13'],
-    ['14', '_', '_', '_', '#', '15', '_', '_', '_', '_', '#', '16', '_', '_', '_'],
-    ['17', '_', '_', '_', '18', '_', '_', '_', '_', '_', '19', '_', '_', '_', '_'],
-    ['20', '_', '_', '_', '_', '_', '_', '_', '_', '#', '21', '_', '_', '#', '#'],
-    ['22', '_', '_', '#', '23', '_', '_', '#', '#', '24', '_', '_', '_', '25', '26'],
-    ['27', '_', '_', '28', '#', '#', '29', '30', '31', '_', '_', '#', '32', '_', '_'],
-    ['#', '#', '#', '33', '34', '35', '#', '36', '_', '_', '_', '37', '_', '_', '_'],
-    ['#', '38', '39', '_', '_', '_', '40', '_', '_', '_', '_', '_', '_', '_', '#'],
-    ['41', '_', '_', '_', '_', '_', '_', '_', '#', '42', '_', '_', '#', '#', '#'],
-    ['43', '_', '_', '#', '44', '_', '_', '_', '45', '#', '#', '46', '47', '48', '49'],
-    ['50', '_', '_', '51', '_', '_', '#', '#', '52', '53', '54', '#', '55', '_', '_'],
-    ['#', '#', '56', '_', '_', '#', '57', '58', '_', '_', '_', '59', '_', '_', '_'],
-    ['60', '61', '_', '_', '_', '62', '_', '_', '_', '_', '_', '_', '_', '_', '_'],
-    ['63', '_', '_', '_', '#', '64', '_', '_', '_', '_', '#', '65', '_', '_', '_'],
-    ['66', '_', '_', '_', '#', '67', '_', '_', '_', '_', '#', '68', '_', '_', '_'],
-]
-across_clues = {
-    1: ['AHEM', 'WHAT', 'ISAY', 'IBEG', 'AINT', 'VERB', 'PRIE', 'ESPN', 'AGOD'],
-    5: ['LOTSA', 'MCJOB', 'BIGON', 'SPEED', 'MUCHO', 'GASES', 'AGITA', 'TANTO', 'ALIKE', 'NOEND'],
-    10: ['MESA', 'AFRO', 'UPTO', 'EAST', 'SAGA', 'EVIL', 'ASIA', 'ENDS', 'ICED', 'APSE'],
-    14: ['LORE', 'ERAS', 'OPEN', 'GAVE', 'CUED', 'ORAL', 'CLIO', 'GENE', 'EVEN', 'ANTE'],
-    15: ['INONE', 'EAGLE', 'TEEUP', 'PUTTS', 'GREEN', 'HALVE', 'DIVOT', 'DRIVE', 'YARDS', 'CREEK'],
-    16: ['LOOP', 'RIDE', 'OVAL', 'WAVE', 'DROP', 'WHEE', 'AUTO', 'STAR', 'SALT', 'RODE'],
-    17: ['LOADEDQUESTIONS', 'INTERNALREVENUE', 'BENEFITSPACKAGE', 'SHIPSINTHENIGHT', 
-         'ONEARMEDBANDITS', 'LEFTHEMISPHERES', 'KNITTINGNEEDLES', 'ACHILLESTENDONS', 
-         'YOUHADMEATHELLO', 'WORDONTHESTREET'],
-    20: ['RESISTANT', 'ORIENTING', 'ORIENTATE', 'DEMEANORS'],
-    21: ['ANT', 'SAW', 'ADZ', 'WEE', 'TIM', 'IFI', 'UKE', 'DAB', 'TAD', 'ION'],
-    22: ['UKE', 'NIT', 'TAB', 'ISA', 'PAR', 'ORT', 'FUN', 'ORE', 'TAN', 'RES'],
-    23: ['OYL', 'REN', 'MOE', 'OIL', 'CEL', 'ANT', 'ASH', 'TOY', 'TAW', 'NED'],
-    24: ['STEWED', 'RIPPED', 'TANKED', 'BLOTTO', 'STINKO', 'SOUSED', 'MENACE', 'LOOPED', 
-         'DOWNED', 'BESOTS'],
-    27: ['THEM', 'ASON', 'UNTO', 'OURS', 'AGEE', 'ASHE', 'OTIS', 'SIDE', 'RSVP', 'NATO'],
-    29: ['MOTET', 'ETUDE', 'NINTH', 'ALTOS', 'ESSAY', 'NONET', 'RONDO', 'STOMP', 'IDYLL', 'GLEES'],
-    32: ['EDO', 'EON', 'ERE', 'ELD', 'LAT', 'APE', 'REO', 'AVE', 'YEN', 'SEN'],
-    33: ['ADO', 'APU', 'AGE', 'ITS', 'USA', 'MEN', 'WAR', 'HOG', 'IDO', 'RAN'],
-    36: ['PALISADE', 'APOLOGIA', 'HEDGEROW', 'MCNAMARA', 'MANTOMAN', 'GATEPOST', 'WAVERERS', 
-         'TRESPASS', 'STOCKADE', 'STIFFARM'],
-    38: ['ANIMALCRACKER', 'PERPENDICULAR', 'PARALLELOGRAM', 'JURYSELECTION', 'HOLYGUACAMOLE'],
-    41: ['ONELINER', 'ARBUCKLE', 'ANGELINA', 'ANACONDA', 'STREAMER', 'SENDOFFS', 'GODSPEED', 'CLEANSER'],
-    42: ['ARE', 'LAY', 'ONE', 'ETC', 'BET', 'AMI', 'AND', 'ATM', 'HUH', 'OHO'],
-    43: ['ERA', 'EON', 'AGE', 'EVE', 'SHE', 'FDR', 'YOU', 'RAJ', 'DOT', 'TUT'],
-    44: ['TATAR', 'NOMAD', 'AARON', 'MIAMI', 'ETHEL', 'BOXER', 'ODETS', 'MIDAS', 'SWARM', 'OLDIE'],
-    46: ['POLS', 'TAPS', 'MIAS'],
-    50: ['MADRID', 'OVIEDO', 'ARAGON', 'TOLEDO', 'NEVADA', 'FRESNO', 'PESETA', 'PAELLA', 'ANKARA', 'OTTAWA'],
-    52: ['ESP', 'SRO', 'IRS', 'EST', 'III', 'OCT', 'ERN', 'PET', 'AKA', 'IOU'],
-    55: ['ROE', 'HEN', 'OVA', 'FRA', 'BIB', 'HAM', 'POT', 'DYE', 'RED', 'ALA'],
-    56: ['EEL', 'OER', 'THY', 'ETC', 'TSO', 'SOS', 'EDY', 'ORD', 'IBN', 'IES'],
-    57: ['DARWINWIN', 'DARWINIST', 'DARWINIAN'],
-    60: ['TWOXTWENTYSEVEN', 'THREECUBEDTWICE', 'TENADDEDTOSEVEN', 'SUGARSUBSTITUTE', 
-         'NINETEENLESSTWO', 'HUNDREDOVERFOUR', 'FOURTEENPLUSSIX', 'FIVETIMESELEVEN', 
-         'FIFTYMINUSEIGHT', 'FIFTYLESSTWELVE'],
-    63: ['ARIA', 'SANG', 'STAG', 'LEIA', 'GOIT', 'TAPS', 'LONE', 'SEUL', 'ENYA', 'ELBA'],
-    64: ['FLUNG', 'SALAD', 'CABER', 'DYNES', 'THREW', 'SLUNG', 'WREST', 'QUOIT', 'ANTED', 'ADDED'],
-    65: ['GLEE', 'ALTO', 'TRIO', 'IDOL', 'TINA', 'LENA', 'COMO', 'CASH', 'AMES', 'SCAT'],
-    66: ['BRAS', 'LESS', 'LACY', 'ATAD', 'ALOT', 'SLIP', 'SILK', 'PINA', 'OLGA', 'LACE'],
-    67: ['TEASE', 'RAGON', 'TRASH', 'TSARS', 'SPOOK', 'ROAST', 'ATONE', 'TBIRD', 'ELATE', 'AREWE'],
-    68: ['HERS', 'TWIN', 'PAIR', 'EVEN', 'REDS', 'ANTI', 'RATE', 'HOLD', 'XERS', 'ROXY'],
-}
-down_clues = {
-    2: ['HOORAY', 'HOORAH', 'IDIDIT', 'HURRAH', 'HOTDOG', 'ANACIN', 'STAIRS', 'STAPLE', 'ORELSE', 'NESTEA'],
-    3: ['WEASEL', 'ERMINE', 'ALPACA', 'ORIOLE', 'AZALEA', 'OCELOT', 'MARTEN', 'MARISA', 'ISOMER', 'CORNET'],
-    4: ['ICON', 'NASH', 'ERMA', 'EBAY', 'JEST', 'BLIP', 'USER', 'IDOL', 'HTTP', 'SURF'],
-    5: ['LINTY', 'INANE', 'ONLOW', 'TEASE', 'TOWEL', 'AMAIN', 'WHISK', 'ERROR', 'SATED', 'LINTS'],
-    6: ['RETOOK', 'ERASED'],
-    7: ['ASEA', 'TEST', 'SNAG', 'AMOK', 'TALC', 'PURR', 'MEET', 'FARM', 'COMA', 'SAFE'],
-    9: ['AEC', 'NRA', 'TVA', 'INS', 'SSA', 'UPI', 'KGB', 'CAA', 'ICC', 'ILO'],
-    10: ['ALINE', 'SATIN', 'SHIFT', 'PUMPS', 'CHAPS', 'PREEN', 'IONIC', 'DORIC', 'SEDAN', 'RETRO'],
-    11: ['HIGHTOPS', 'FOOTGEAR', 'NINEWEST', 'GALOSHES', 'TRAINERS', 'SANDALED', 'SABOTAGE', 'OPENTOED', 
-         'EEEWIDTH', 'BAREFOOT'],
-    12: ['RON', 'KEN', 'ANG', 'LEE', 'WES', 'TWA', 'MOE', 'CUT', 'TOD', 'TUT'],
-    13: ['OPS', 'UPI', 'FCC', 'ENL', 'TED', 'PIC', 'CBC', 'LOG', 'LAG', 'OTS'],
-    18: ['ONO', 'ELO', 'BAG', 'AMP', 'OWE', 'REM', 'ERA', 'PVC', 'YES', 'GIG'],
-    19: ['EMPEROR', 'CAMPHOR', 'SNAPPEA', 'SHERBET', 'ORTOLAN', 'MUSTARD', 'INGESTA', 'GRANOLA', 'EGGROLL', 'ALDENTE'],
-    24: ['SELMA', 'SIENA', 'YALTA', 'ALAMO', 'OZARK', 'PADUA', 'ELGIN', 'OSTIA', 'SOREL', 'ARRAS'],
-    25: ['EDDY', 'DARE', 'DRAW', 'CRAG', 'MAZE', 'MEET', 'ALPS', 'LSAT', 'DEFY', 'SPOT'],
-    26: ['DOE', 'ENA', 'EWE', 'EVE', 'ASE', 'HEN', 'DEN', 'SOW', 'NUN', 'DAM'],
-    28: ['MASK', 'TOGA', 'SCAR', 'WART', 'VEIL', 'KILT', 'ROBE', 'TUTU', 'SARI', 'IOTA'],
-    30: ['OPERA', 'ALONE', 'IDAHO', 'ARUBA', 'AUJUS', 'AMIND', 'CHESS', 'TAPAS', 'SLIDE', 'GENOA'],
-    31: ['TAO', 'ROO', 'OWL', 'FIE', 'WOL', 'VIP', 'BAH', 'AGA', 'AAM'],
-    34: ['DISTILL', 'ESSENCE'],
-    35: ['OCTET', 'OCTAD', 'ELITE', 'BYRDS', 'MASSE', 'RANKS', 'QUEEN', 'ESSES', 'OCTAL', 'AWEEK'],
-    37: ['ELAL', 'EAST', 'READ', 'SLED', 'TIME', 'DEMO', 'SHED', 'OREO', 'STEP', 'REST'],
-    38: ['BORA', 'PAGO', 'NANU', 'MAHI', 'CHOP', 'CHOO', 'LIAR', 'SING', 'HEAR', 'ISAN'],
-    39: ['EXECUTOR', 'DORMROOM', 'TOREADOR', 'TUITIONS', 'STREAKER', 'SCHOLARS', 'PROTESTS', 'PLEDGING', 
-         'MEALPLAN', 'HARDDEAN'],
-    40: ['GAT', 'ROD', 'VAL', 'REV', 'NRA', 'UZI', 'LON', 'MAE', 'LOM', 'MIA'],
-    41: ['REM', 'DEW', 'ESP', 'NAP', 'BED', 'UFO', 'PSI', 'LOW', 'FOG', 'FAD'],
-    45: ['RERUNS', 'ONEDGE', 'IRONIC', 'EERIER', 'HAWAII', 'SECTOR', 'SUNSET', 'GLEAMS', 'DARKEN', 'TAMALE'],
-    47: ['ORIOLE', 'ALEAST', 'TOUCAN', 'PARROT', 'RAPTOR', 'AVOCET', 'PETREL', 'NESTER', 'CELTIC', 'PEAHEN'],
-    48: ['LOANER', 'CABANA', 'DENTED', 'GARAGE', 'PRIMER', 'SENATE', 'POPTOP', 'BARCAR', 'TATTOO', 'USABLY'],
-    49: ['SENSES', 'ISSURE', 'SENSED', 'INTUIT', 'TRUSTS', 'SEESAW', 'TASTES', 'STEERS', 'EATSIN', 'SENATE'],
-    51: ['REPAY', 'STRIP', 'OWING', 'TNOTE', 'INCUR', 'RANUP', 'ARISE', 'PAYUP', 'PAYER', 'OWETO'],
-    53: ['LATHE', 'PEENS', 'ROBOT', 'SWAGE', 'LADLE', 'EDGER', 'STEEL', 'RIVET', 'INGOT', 'SCRAP'],
-    54: ['PIT', 'STR', 'SPA', 'STY', 'NEA', 'LEA', 'DEN', 'INN', 'SYM', 'SYD'],
-    57: ['DELE', 'REDO', 'STET', 'REST', 'DESK', 'TINA', 'HIRE', 'ROSS', 'ATIP', 'THEA'],
-    58: ['AQUA', 'OLAN', 'LOBE', 'PORE', 'SLOT', 'SLIT', 'IRON', 'GILL', 'ACTI', 'AERO'],
-    59: ['NIGH', 'ISNT', 'NEAR', 'EZRA', 'EPOS', 'EDDA', 'ITEM', 'ROSE', 'ODES', 'IDYL'],
-    60: ['SAL', 'YES', 'LEE', 'ERR', 'NRA', 'DEE', 'ACE', 'PET', 'YOU', 'RES'],
-    61: ['IRA', 'BUS', 'SNO', 'CAR', 'ING', 'SNL', 'CAT', 'AOL', 'VAN', 'INT'],
-    62: ['EFT', 'UKE', 'IMP', 'IMA', 'TOT', 'TOE', 'EVA', 'TAD', 'ELF', 'MAO'],
-}
-
-across2 = update_clues_with_positions(grid, across_clues, "across")
-down2 = update_clues_with_positions(grid, down_clues, "down")
-
-for clue_number, details in across2.items():
-    print(f"Clue {clue_number}:")
-    print(f"  Possible Words: {details[0]}")
-    print(f"  Word Length: {details[1]}")
-    print(f"  Start Position: {details[2]}")
-    print(f"  Positions Set: {details[3]}")
-    print()
-for clue_number, details in down2.items():
-    print(f"Clue {clue_number}:")
-    print(f"  Possible Words: {details[0]}")
-    print(f"  Word Length: {details[1]}")
-    print(f"  Start Position: {details[2]}")
-    print(f"  Positions Set: {details[3]}")
-    print()
-final = solve_crossword(grid2, across2, down2)
-# Print the solved (or partially solved) grid
-for row in final:
-    # Add a space between each cell for readability
-    print(" ".join(cell if cell != "." else "_" for cell in row))
+def solve(number_grid, empty_grid, across_clues, down_clues): 
+    new_across = update_clues_with_positions(number_grid, across_clues, "across")
+    new_down = update_clues_with_positions(number_grid, down_clues, "down")
+    solved_grid = solve_crossword_as_csp(empty_grid, new_across, new_down)
+    if solved_grid:
+        solved_grid = reevaluate_and_correct(solved_grid, new_across, "across")
+        solved_grid = reevaluate_and_correct(solved_grid, new_down, "down")
+    return solved_grid
 
 @app.route('/', methods=['POST'])
 def upload_image():
@@ -1095,111 +644,49 @@ def upload_image():
         transformed_image_hex = image_to_hex(transformed_rgb)
 
         # Break image into boxes box1_across, box2_down, box3_matrix
-        box1_across, box2_down, box3_matrix = extract_boxes(transformed_image)
+        across_box, down_box, crossword = extract_boxes(transformed_image)
         
         # Extract text from box1_across and box2_down for the across and down clues
-        box1_text = extract_text(box1_across)
-        box2_text = extract_text(box2_down)
+        across_text = extract_text(across_box)
+        down_text = extract_text(down_box)
             
-        box1_clue_dict = extract_clues(box1_text)
-        box2_clue_dict = extract_clues(box2_text)
+        initial_across_hints = extract_clues(across_text)
+        initial_down_hints = extract_clues(down_text)
         
-        box1_clue_dict = data_clean_dict(box1_clue_dict)
-        # print("Across Clues Dict:", box1_clue_dict)
-        box2_clue_dict = data_clean_dict(box2_clue_dict)
-        # print("Down Clues Dict:", box2_clue_dict)
+        across_hints = data_clean_dict(initial_across_hints)
+        down_hints = data_clean_dict(initial_down_hints)
         
-        box3_2d_matrix = crossword_extract(box3_matrix)
-        
-        # # Calls to get the 2d matrix
-        # # Example crossword matrix (2D array)
-        # box3_2d_matrix = [
-        #     ['1', '2', '3', '4', '#', '5', '6', '7', '8', '9', '#', '10', '11', '12', '13'],
-        #     ['14', '_', '_', '_', '#', '15', '_', '_', '_', '_', '#', '16', '_', '_', '_'],
-        #     ['17', '_', '_', '_', '18', '_', '_', '_', '_', '_', '19', '_', '_', '_', '_'],
-        #     ['20', '_', '_', '_', '_', '_', '_', '_', '_', '#', '21', '_', '_', '#', '#'],
-        #     ['22', '_', '_', '#', '23', '_', '_', '#', '#', '24', '_', '_', '_', '25', '26'],
-        #     ['27', '_', '_', '28', '#', '#', '29', '30', '31', '_', '_', '#', '32', '_', '_'],
-        #     ['#', '#', '#', '33', '34', '35', '#', '36', '_', '_', '_', '37', '_', '_', '_'],
-        #     ['#', '38', '39', '_', '_', '_', '40', '_', '_', '_', '_', '_', '_', '_', '#'],
-        #     ['41', '_', '_', '_', '_', '_', '_', '_', '#', '42', '_', '_', '#', '#', '#'],
-        #     ['43', '_', '_', '#', '44', '_', '_', '_', '45', '#', '#', '46', '47', '48', '49'],
-        #     ['50', '_', '_', '51', '_', '_', '#', '#', '52', '53', '54', '#', '55', '_', '_'],
-        #     ['#', '#', '56', '_', '_', '#', '57', '58', '_', '_', '_', '59', '_', '_', '_'],
-        #     ['60', '61', '_', '_', '_', '62', '_', '_', '_', '_', '_', '_', '_', '_', '_'],
-        #     ['63', '_', '_', '_', '#', '64', '_', '_', '_', '_', '#', '65', '_', '_', '_'],
-        #     ['66', '_', '_', '_', '#', '67', '_', '_', '_', '_', '#', '68', '_', '_', '_']
-        # ]
-        
-        # # Print the box3 matrix for debugging
-        # for row in box3_2d_matrix:
-        #     print(row)
+        number_grid = crossword_extract(crossword) 
+
             
-        answer_matrix = generate_answer_matrix(box3_2d_matrix)
-        
-        
-        # # Testing for obtaining pattern p for 57 across for debugging
-        # clue_number = 57
-        # pattern = find_pattern_across(box3_2d_matrix, answer_matrix, clue_number)
-        # print(f"Pattern for clue {clue_number} across: {pattern}")
-
-        # # Testing for obtaining pattern p for 57 down for debugging        
-        # clue_number = 57
-        # pattern = find_pattern_down(box3_2d_matrix, answer_matrix, clue_number)
-        # print(f"Pattern for clue {clue_number} across: {pattern}")        
-        
-        # # Testing for getting a response answer array for a clue          
-        # clue = "Beg-pardon-..."
-        # pattern = "????"
-        # length = 4
-
-        # answers = fetch_crossword_answers(clue, pattern, length)
-        # print("Possible Answers:", answers)        
-
+        empty_grid = generate_answer_matrix(number_grid)
         
         # Testing to get the Across possible answers
-        across_answers = generate_possible_clue_answers(
-            clue_dict=box1_clue_dict,
-            crossword=box3_2d_matrix,
-            answer_matrix=answer_matrix,
+        across_clues = generate_possible_clue_answers(
+            clue_dict=across_hints,
+            crossword=number_grid,
+            answer_matrix=empty_grid,
             direction="across"
         )
 
         # Testing to get the Down possible answers
-        down_answers = generate_possible_clue_answers(
-            clue_dict=box2_clue_dict,
-            crossword=box3_2d_matrix,
-            answer_matrix=answer_matrix,
+        down_clues = generate_possible_clue_answers(
+            clue_dict=down_hints,
+            crossword=number_grid,
+            answer_matrix=empty_grid,
             direction="down"
         )
-         # Print the crossword puzzle grid
-        print("\nCrossword Puzzle Grid:")
-        for row in box3_2d_matrix:
-            print(" ".join(row))
-        # Print the answer matrix for debugging
-        print('answer matrix')
-        for row in answer_matrix:
-            print(row)
-        # Print all possible answers for across clues
-        print("\nPossible Answers for Across Clues:")
-        for clue_number, answers in across_answers.items():
-            print(f"Clue {clue_number}: {answers}")
-
-        # Print all possible answers for down clues
-        print("\nPossible Answers for Down Clues:")
-        for clue_number, answers in down_answers.items():
-            print(f"Clue {clue_number}: {answers}")
-
-        # # Outputting the Across and Down possible answer results to terminal
-        # print("Possible Across Answers:", across_answers)
-        # print("Possible Down Answers:", down_answers)
         
         # Converting to hex for transport to output but honestly questioning whether bytes would be better
-        box1_across_hex = image_to_hex(box1_across)
-        box2_down_hex = image_to_hex(box2_down)
-        box3_matrix_hex = image_to_hex(box3_matrix)
-        # box3_2d_matrix = image_to_hex(box3_2d_matrix)
-       
+        box1_across_hex = image_to_hex(across_box)
+        box2_down_hex = image_to_hex(down_box)
+        box3_matrix_hex = image_to_hex(crossword)
+
+        solved_grid = solve(number_grid, empty_grid, across_clues, down_clues)
+        if solved_grid:
+            print("\nSolved Crossword Grid:")
+            for row in solved_grid:
+                print(" ".join(row))
         return jsonify({
             "original_image": original_image_hex,
             "transformed_image": transformed_image_hex,
