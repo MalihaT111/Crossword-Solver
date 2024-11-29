@@ -27,17 +27,16 @@ def generate_answer_matrix(crossword_matrix):
         answer_matrix.append(answer_row)
 
     return answer_matrix
-
-# Function to get a dictionary of clue numbers to an array of clue possible answers
-def generate_possible_clue_answers(clue_dict, crossword, answer_matrix, direction):
+def generate_possible_clue_answers(clue_dict, crossword, answer_matrix, direction, specific_pass=False):
     """
     Generate a dictionary of possible answers for each clue.
 
     Parameters:
         clue_dict (dict): Dictionary of clues (clue_number: clue_text).
         crossword (list[list[str]]): The crossword grid.
-        answer_matrix (list[list[str]]): The answer matrix.
+        answer_matrix (list[list[str]]): The partially filled crossword grid with known letters.
         direction (str): Direction of clues ("across" or "down").
+        specific_pass (bool): If True, use a more specific query strategy with known letters.
 
     Returns:
         dict: A dictionary with clue numbers as keys and lists of possible answers as values.
@@ -54,9 +53,14 @@ def generate_possible_clue_answers(clue_dict, crossword, answer_matrix, directio
                 pattern = find_pattern_down(crossword, answer_matrix, clue_number)
             else:
                 raise ValueError("Invalid direction. Use 'across' or 'down'.")
-            
-            # Fetch possible answers for the clue
-            possible_answers = fetch_crossword_answers(clue_text, pattern, len(pattern))
+
+            # Decide which function to use based on the pass type
+            if specific_pass:
+                # Use the updated function for a refined query
+                possible_answers = fetch_specific(clue_text, pattern, len(pattern))
+            else:
+                # Use the original function for a general query
+                possible_answers = fetch_crossword_answers(clue_text, pattern, len(pattern))
             
             # Store the results in the dictionary
             possible_clue_answers[clue_number] = possible_answers
@@ -67,6 +71,46 @@ def generate_possible_clue_answers(clue_dict, crossword, answer_matrix, directio
             print(f"Error processing clue {clue_number}: {e}")
 
     return possible_clue_answers
+
+# # Function to get a dictionary of clue numbers to an array of clue possible answers
+# def generate_possible_clue_answers(clue_dict, crossword, answer_matrix, direction):
+#     """
+#     Generate a dictionary of possible answers for each clue.
+
+#     Parameters:
+#         clue_dict (dict): Dictionary of clues (clue_number: clue_text).
+#         crossword (list[list[str]]): The crossword grid.
+#         answer_matrix (list[list[str]]): The answer matrix.
+#         direction (str): Direction of clues ("across" or "down").
+
+#     Returns:
+#         dict: A dictionary with clue numbers as keys and lists of possible answers as values.
+#     """
+#     possible_clue_answers = {}
+
+#     for clue_number, clue_text in clue_dict.items():
+#         clue_number = int(clue_number)  # Ensure the clue number is an integer
+#         try:
+#             # Determine the pattern based on the direction
+#             if direction == "across":
+#                 pattern = find_pattern_across(crossword, answer_matrix, clue_number)
+#             elif direction == "down":
+#                 pattern = find_pattern_down(crossword, answer_matrix, clue_number)
+#             else:
+#                 raise ValueError("Invalid direction. Use 'across' or 'down'.")
+            
+#             # Fetch possible answers for the clue
+#             possible_answers = fetch_crossword_answers(clue_text, pattern, len(pattern))
+            
+#             # Store the results in the dictionary
+#             possible_clue_answers[clue_number] = possible_answers
+
+#         except ValueError as e:
+#             print(f"Skipping clue {clue_number}: {e}")
+#         except Exception as e:
+#             print(f"Error processing clue {clue_number}: {e}")
+
+#     return possible_clue_answers
 
 # Helper Function to find the starting possition of the clue in the crossword puzzle
 def find_starting_location(crossword, clue_number):
@@ -202,6 +246,58 @@ def fetch_crossword_answers(clue: str, pattern: str = None, length: int = None):
     
     return []  # Return an empty list if all queries fail
 
+# def fetch_specific_answers(clue: str, pattern: str = None, length: int = None):
+#     """
+#     Fetch possible crossword answers for a given clue with high specificity.
+#     Parameters:
+#         clue (str): The crossword clue text.
+#         pattern (str, optional): The clue pattern (e.g., 'A??T'). Default is None.
+#         length (int, optional): The expected length of the answer. Default is None.
+#     Returns:
+#         list: A list of possible answers.
+#     """
+#     base_url = "https://www.dictionary.com/e/crosswordsolver/"
+#     url = base_url + f"{urllib.parse.quote(clue)}/"  # Encode the clue in the URL
+
+#     # Build the queries based on the parameters
+#     queries = []
+#     if pattern and length:
+#         queries.append({"p": pattern, "l": length})  # Use pattern and length
+#     elif pattern:
+#         queries.append({"p": pattern})  # Use pattern only
+#     elif length:
+#         queries.append({"l": length})  # Use length only
+#     queries.append({})  # Fallback to the most general query
+
+#     for params in queries:
+#         try:
+#             # Construct the request URL
+#             request_url = url + f"?{urllib.parse.urlencode(params)}" if params else url
+#             response = requests.get(request_url)
+#             response.raise_for_status()  # Raise an error if the request fails
+
+#             # Parse the HTML response
+#             soup = BeautifulSoup(response.text, 'html.parser')
+#             rows = soup.find_all('div', class_='solver-table__row')
+
+#             # Extract answers from the result rows
+#             answers = []
+#             for row in rows:
+#                 answer_cell = row.find('div', attrs={'data-cy': 'result'})
+#                 if answer_cell:
+#                     answer = answer_cell.text.strip()
+#                     answers.append(answer)
+
+#             # Return results if answers are found
+#             if answers:
+#                 return answers
+
+#         except requests.RequestException as e:
+#             print(f"Error fetching crossword answers for params {params}: {e}")
+    
+#     return []  # Return an empty list if all attempts fail
+
+
 def solve(number_grid, empty_grid, across_clues, down_clues): 
     new_across = update_clues_with_positions(number_grid, across_clues, "across")
     new_down = update_clues_with_positions(number_grid, down_clues, "down")
@@ -210,6 +306,7 @@ def solve(number_grid, empty_grid, across_clues, down_clues):
         solved_grid = reevaluate_and_correct(solved_grid, new_across, "across")
         solved_grid = reevaluate_and_correct(solved_grid, new_down, "down")
     return solved_grid
+
 
 @app.route('/', methods=['POST'])
 def upload_image():
@@ -300,10 +397,28 @@ def upload_image():
         box3_matrix_hex = image_to_hex(crossword)
 
         solved_grid = solve(number_grid, empty_grid, across_clues, down_clues)
+
+        # across_clues = generate_possible_clue_answers(
+        #     clue_dict=across_hints,
+        #     crossword=number_grid,
+        #     answer_matrix=solved_grid,
+        #     direction="across"
+        # )
+
+        # # Testing to get the Down possible answers
+        # down_clues = generate_possible_clue_answers(
+        #     clue_dict=down_hints,
+        #     crossword=number_grid,
+        #     answer_matrix=solved_grid,
+        #     direction="down"
+        # )
+        # solved_grid = solve(number_grid, empty_grid, across_clues, down_clues)
+        
         if solved_grid:
             print("\nSolved Crossword Grid:")
             for row in solved_grid:
                 print(" ".join(row))
+
         return jsonify({
             "original_image": original_image_hex,
             "transformed_image": transformed_image_hex,
