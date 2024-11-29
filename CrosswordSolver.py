@@ -322,3 +322,4 @@ def count_differences(solved_grid, real_answer):
             if solved_grid[row_idx][col_idx] != real_answer[row_idx][col_idx]:
                 differences += 1
     return differences
+
