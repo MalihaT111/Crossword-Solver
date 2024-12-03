@@ -46,9 +46,9 @@ def extract_boxes(image):
     # OUTPUTTING and image debugging
 
     # Save each section as a separate image - Unnecessary but used for debugging
-    # cv2.imwrite("box1.png", box1)
-    # cv2.imwrite("box2.png", box2)
-    # cv2.imwrite("box3.png", box3)
+    cv2.imwrite("box1.png", box1)
+    cv2.imwrite("box2.png", box2)
+    cv2.imwrite("box3.png", box3)
 
     # Return the images if further processing is needed
     return box1, box2, box3

@@ -293,7 +293,7 @@ def fetch_clue_answers_multithreaded(request_calls):
     return possible_clue_answers
 
 # Function to test the accuracy and efficiency of crossword solver code
-def test_solver(solver_function, puzzle):
+def test_solver(solved_grid):
     """
     Tests the accuracy and efficiency of a crossword solver.
 
@@ -338,27 +338,19 @@ def test_solver(solver_function, puzzle):
             ['L', 'A', 'C', 'Y', '#', 'T', 'E', 'A', 'S', 'E', '#', 'H', 'E', 'R', 'S']
         ]
 
-    # Measure efficiency
-    start_time = time.time()
-    solver_output = solver_function(puzzle)
-    end_time = time.time()
-    time_taken = end_time - start_time
-
     # Measure accuracy
-    total_cells = 15^2
+    total_cells = 225
     
     # Measure number of differences
-    differences = count_differences(solver_output, solution)
+    differences = count_differences(solved_grid, solution)
 
     accuracy = ((total_cells-differences) / total_cells) * 100 if total_cells > 0 else 0
 
 
     # Return results
     return {
-        "accuracy": accuracy,
-        "differences": differences,
-        "time_taken": time_taken,
-        "solver_output": solver_output
+        "accuracy (percentage)": accuracy,
+        "differences (integer number)": differences
     }
 
 
@@ -379,6 +371,7 @@ def upload_image():
             return jsonify({"error": "No file selected for uploading"}), 400
 
         try:
+            start_time = time.time()
             # Load and process the image
             image = load_image(file)
             preprocessed_image = preprocess_image(image)
@@ -428,6 +421,8 @@ def upload_image():
             across_hints = data_clean_dict(initial_across_hints)
             down_hints = data_clean_dict(initial_down_hints)
             
+            for key, value in across_hints.items():
+                print(f"{key}-Across: {value}")
             number_grid = crossword_extract(crossword) 
 
                 
@@ -464,8 +459,14 @@ def upload_image():
             # box3_matrix_hex = image_to_hex(crossword)
 
             solved_grid = solve(number_grid, empty_grid, across_clues, down_clues)
+            end_time = time.time()
+            time_taken = end_time - start_time
 
-            test_results = test_solver(solve, number_grid)
+            print("efficiency (seconds): " + str(time_taken))
+            for key, value in test_solver(solved_grid).items():
+                print(f"{key}: {value}")
+
+            # test_results = test_solver(solve, number_grid)
             
             
 
