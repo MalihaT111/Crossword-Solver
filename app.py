@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 import io
 import requests
 import urllib
@@ -27,6 +27,7 @@ def generate_answer_matrix(crossword_matrix):
         answer_matrix.append(answer_row)
 
     return answer_matrix
+
 def generate_possible_clue_answers(clue_dict, crossword, answer_matrix, direction, specific_pass=False):
     """
     Generate a dictionary of possible answers for each clue.
@@ -308,129 +309,123 @@ def solve(number_grid, empty_grid, across_clues, down_clues):
     return solved_grid
 
 
-@app.route('/', methods=['POST'])
+@app.route('/', methods=['GET','POST'])
 def upload_image():
-    # Check if the request contains a file
-    if 'image' not in request.files:
-        return jsonify({"error": "No image part in the request"}), 400
-    
-    file = request.files['image']
-    
-    # Check if an image file was uploaded
-    if file.filename == '':
-        return jsonify({"error": "No file selected for uploading"}), 400
+    if request.method == "GET":
+        # Render the upload form
+        return render_template("index.html")
+    if request.method == "POST":
+        # Check if the request contains a file
+        if 'image' not in request.files:
+            return jsonify({"error": "No image part in the request"}), 400
+        
+        file = request.files['image']
+        
+        # Check if an image file was uploaded
+        if file.filename == '':
+            return jsonify({"error": "No file selected for uploading"}), 400
 
-    try:
-        # Load and process the image
-        image = load_image(file)
-        preprocessed_image = preprocess_image(image)
-        
-        # Detect edges and find document contour
-        edges = detect_edges(preprocessed_image)
-        corners = find_contours(edges)
-        
-        if corners is None:
-            return jsonify({"error": "Document edges not detected"}), 400
-        
-        if corners is not None:
-            contour_image = image.copy()
-            cv2.drawContours(contour_image, [corners], -1, (0, 255, 0), 3)
-            save_or_show_image(contour_image, title="Detected Document Contour Edges")
-        else:
-            print("No contour with 4 corners found.")
-
-        # Perspective transformation (if corners were found)
-        if corners is not None:
-            matrix = get_transformation_matrix(np.float32(corners))
-            transformed_image = apply_perspective_transform(image, matrix)
-            save_or_show_image(transformed_image, title="Transformed (Flattened) Document")
-        else:
-            print("Cannot apply perspective transform as corners were not detected.")
-        
-        
-        # cv2.imwrite("transformed.png", transformed_image)
-        # Convert images to RGB for response
-        original_rgb = convert_to_rgb(image)
-        transformed_rgb = convert_to_rgb(transformed_image)
-
-        # Convert images to hex strings
-        original_image_hex = image_to_hex(original_rgb)
-        transformed_image_hex = image_to_hex(transformed_rgb)
-
-        # Break image into boxes box1_across, box2_down, box3_matrix
-        across_box, down_box, crossword = extract_boxes(transformed_image)
-        
-        # Extract text from box1_across and box2_down for the across and down clues
-        across_text = extract_text(across_box)
-        down_text = extract_text(down_box)
+        try:
+            # Load and process the image
+            image = load_image(file)
+            preprocessed_image = preprocess_image(image)
             
-        initial_across_hints = extract_clues(across_text)
-        initial_down_hints = extract_clues(down_text)
-        
-        across_hints = data_clean_dict(initial_across_hints)
-        down_hints = data_clean_dict(initial_down_hints)
-        
-        number_grid = crossword_extract(crossword) 
-
+            # Detect edges and find document contour
+            edges = detect_edges(preprocessed_image)
+            corners = find_contours(edges)
             
-        empty_grid = generate_answer_matrix(number_grid)
-        
-        # Testing to get the Across possible answers
-        across_clues = generate_possible_clue_answers(
-            clue_dict=across_hints,
-            crossword=number_grid,
-            answer_matrix=empty_grid,
-            direction="across"
-        )
+            if corners is None:
+                return jsonify({"error": "Document edges not detected"}), 400
+            
+            if corners is not None:
+                contour_image = image.copy()
+                cv2.drawContours(contour_image, [corners], -1, (0, 255, 0), 3)
+                save_or_show_image(contour_image, title="Detected Document Contour Edges")
+            else:
+                print("No contour with 4 corners found.")
 
-        # Testing to get the Down possible answers
-        down_clues = generate_possible_clue_answers(
-            clue_dict=down_hints,
-            crossword=number_grid,
-            answer_matrix=empty_grid,
-            direction="down"
-        )
-        
-        # Converting to hex for transport to output but honestly questioning whether bytes would be better
-        box1_across_hex = image_to_hex(across_box)
-        box2_down_hex = image_to_hex(down_box)
-        box3_matrix_hex = image_to_hex(crossword)
+            # Perspective transformation (if corners were found)
+            if corners is not None:
+                matrix = get_transformation_matrix(np.float32(corners))
+                transformed_image = apply_perspective_transform(image, matrix)
+                save_or_show_image(transformed_image, title="Transformed (Flattened) Document")
+            else:
+                print("Cannot apply perspective transform as corners were not detected.")
+            
+            
+            # cv2.imwrite("transformed.png", transformed_image)
+            # Convert images to RGB for response
+            original_rgb = convert_to_rgb(image)
+            transformed_rgb = convert_to_rgb(transformed_image)
 
-        solved_grid = solve(number_grid, empty_grid, across_clues, down_clues)
+            # Convert images to hex strings
+            original_image_hex = image_to_hex(original_rgb)
+            transformed_image_hex = image_to_hex(transformed_rgb)
 
-        # across_clues = generate_possible_clue_answers(
-        #     clue_dict=across_hints,
-        #     crossword=number_grid,
-        #     answer_matrix=solved_grid,
-        #     direction="across"
-        # )
+            # Break image into boxes box1_across, box2_down, box3_matrix
+            across_box, down_box, crossword = extract_boxes(transformed_image)
+            
+            # Extract text from box1_across and box2_down for the across and down clues
+            across_text = extract_text(across_box)
+            down_text = extract_text(down_box)
+                
+            initial_across_hints = extract_clues(across_text)
+            initial_down_hints = extract_clues(down_text)
+            
+            across_hints = data_clean_dict(initial_across_hints)
+            down_hints = data_clean_dict(initial_down_hints)
+            
+            number_grid = crossword_extract(crossword) 
 
-        # # Testing to get the Down possible answers
-        # down_clues = generate_possible_clue_answers(
-        #     clue_dict=down_hints,
-        #     crossword=number_grid,
-        #     answer_matrix=solved_grid,
-        #     direction="down"
-        # )
-        # solved_grid = solve(number_grid, empty_grid, across_clues, down_clues)
-        
-        if solved_grid:
-            print("\nSolved Crossword Grid:")
-            for row in solved_grid:
-                print(" ".join(row))
+                
+            empty_grid = generate_answer_matrix(number_grid)
+            
+            # Testing to get the Across possible answers
+            across_clues = generate_possible_clue_answers(
+                clue_dict=across_hints,
+                crossword=number_grid,
+                answer_matrix=empty_grid,
+                direction="across"
+            )
 
-        return jsonify({
-            "original_image": original_image_hex,
-            "transformed_image": transformed_image_hex,
-            "corners": corners.tolist(),  # Return corner values for further processing if needed
-            "box1_across": box1_across_hex,
-            "box2_down": box2_down_hex,
-            "box3_matrix": box3_matrix_hex,
-            # "box3_2d_matrix": box3_2d_matrix
-        })
+            # Testing to get the Down possible answers
+            down_clues = generate_possible_clue_answers(
+                clue_dict=down_hints,
+                crossword=number_grid,
+                answer_matrix=empty_grid,
+                direction="down"
+            )
+            
+            # Converting to hex for transport to output but honestly questioning whether bytes would be better
+            box1_across_hex = image_to_hex(across_box)
+            box2_down_hex = image_to_hex(down_box)
+            box3_matrix_hex = image_to_hex(crossword)
+
+            solved_grid = solve(number_grid, empty_grid, across_clues, down_clues)
+
+            solved_grid_html = "<br>".join([" ".join(row) for row in solved_grid])
+
+            return f"<h1>Solved Crossword</h1><pre>{solved_grid_html}</pre>"
+        except Exception as e:
+            return f"Error processing the image: {str(e)}", 500
+            
+        # if solved_grid:
+        #     # print("\nSolved Crossword Grid:")
+        #     # for row in solved_grid:
+        #     #     print(" ".join(row))
+
+    #     return jsonify({
+    #         "original_image": original_image_hex,
+    #         "transformed_image": transformed_image_hex,
+    #         "corners": corners.tolist(),  # Return corner values for further processing if needed
+    #         "box1_across": box1_across_hex,
+    #         "box2_down": box2_down_hex,
+    #         "box3_matrix": box3_matrix_hex,
+    #         # "box3_2d_matrix": box3_2d_matrix
+    #     })
     
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
+    # except ValueError as e:
+    #     return jsonify({"error": str(e)}), 400
 
 if __name__ == '__main__':
     app.run(debug=True)
